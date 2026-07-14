@@ -168,7 +168,8 @@ impl AyagamiLoader {
 			mesh_instance.set_name(&id);
 			mesh_instance.set_mesh(&mesh);
 			mesh_instance.set_meta("uid", &uid.to_variant());
-			mesh_instance.set_visible(artmesh.visible());
+			mesh_instance.set_visible(am.visual.visible);
+			mesh_instance.set_self_modulate(Color { r: 1.0, g: 1.0, b: 1.0, a: am.visual.opacity });
 			
 			let tex_id = artmesh.texture() as usize;
 			let tex = textures.get(tex_id).unwrap();

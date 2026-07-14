@@ -25,7 +25,6 @@ func _on_file_selected(path: String) -> void:
 		
 	for property in model.get_property_list():
 		if property.name.begins_with("parameters/"):
-			print(property)
 			var container = PanelContainer.new()
 			container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
@@ -34,6 +33,8 @@ func _on_file_selected(path: String) -> void:
 			container.add_child(layout)
 
 			var label = Label.new()
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			label.clip_text = true
 			label.text = (property.name as String).right(-len("parameters/"))
 			layout.add_child(label)
 
