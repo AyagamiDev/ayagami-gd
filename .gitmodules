@@ -1,0 +1,3 @@
+[submodule "vendor/ayagami"]
+	path = vendor/ayagami
+	url = https://github.com/AyagamiDev/ayagami

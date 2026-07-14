@@ -1,0 +1,64 @@
+[editor]
+line_wrapping=false
+line_break_column=72
+auto_continue_multiline=true
+
+[file_prefs]
+final_new_line=true
+ensure_convert_new_lines=false
+strip_trailing_spaces=false
+replace_tabs=false
+
+[indentation]
+indent_width=4
+indent_type=1
+indent_hard_tab_width=8
+detect_indent=false
+detect_indent_width=false
+indent_mode=2
+
+[project]
+name=ayagami-gd
+base_path=/home/erodozer/Documents/code/open-vt/thirdparty/ayagami-gd
+description=
+file_patterns=
+
+[long line marker]
+long_line_behaviour=1
+long_line_column=72
+
+[files]
+current_page=0
+FILE_NAME_0=1705;Rust;0;EUTF-8;1;1;0;%2Fhome%2Ferodozer%2FDocuments%2Fcode%2Fopen-vt%2Fthirdparty%2Fayagami-gd%2Fsrc%2Floader.rs;0;4
+
+[VTE]
+last_dir=/home/erodozer
+
+[build-menu]
+NF_00_LB=_Make
+NF_00_CM=cargo build
+NF_00_WD=
+NF_03_LB=
+NF_03_CM=
+NF_03_WD=
+NF_01_LB=Cargo Test
+NF_01_CM=cargo test
+NF_01_WD=
+NF_02_LB=Cargo Bench
+NF_02_CM=cargo bench
+NF_02_WD=
+
+[prjorg]
+expanded_paths=/home/erodozer/Documents/code/open-vt/thirdparty/ayagami-gd/src;
+source_patterns=*.c;*.C;*.cpp;*.cxx;*.c++;*.cc;*.m;
+header_patterns=*.h;*.H;*.hpp;*.hxx;*.h++;*.hh;
+ignored_dirs_patterns=.*;CVS;
+ignored_file_patterns=*.o;*.obj;*.a;*.lib;*.so;*.dll;*.lo;*.la;*.class;*.jar;*.pyc;*.mo;*.gmo;
+generate_tag_prefs=0
+show_empty_dirs=true
+external_dirs=
+
+[lsp]
+enabled=true
+settings_type=0
+config_file=

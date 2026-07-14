@@ -1,0 +1,11 @@
+[package]
+name = "ayagami-gd"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ayagami = { path = "vendor/ayagami/ayagami" }
+godot = "0.5.4"
