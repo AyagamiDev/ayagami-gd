@@ -14,6 +14,10 @@ config/name="ayagami-demo"
 run/main_scene="uid://bpvrn0bm18wb4"
 config/features=PackedStringArray("4.7")
 
+[autoload]
+
+AyagamiBlendRegistry="*uid://dmhw76skp73u3"
+
 [display]
 
 window/subwindows/embed_subwindows=false

@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use godot::classes::mesh::PrimitiveType;
-use godot::classes::viewport::DefaultCanvasItemTextureFilter;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, RenderingServer, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
+	ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
 };
 
 use ayagami::core::{

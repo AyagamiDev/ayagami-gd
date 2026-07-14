@@ -1,0 +1,2334 @@
+diff --git a/core/templates/vset.h b/core/templates/vset.h
+index 0603fc6b75..b218944a7f 100644
+--- a/core/templates/vset.h
++++ b/core/templates/vset.h
+@@ -95,6 +95,74 @@ public:
+ 
+ 	_FORCE_INLINE_ int size() const { return _data.size(); }
+ 
++	_FORCE_INLINE_ T *ptrw() { return _data.ptrw(); }
++
++	_FORCE_INLINE_ const T *ptr() const { return _data.ptr(); }
++
++	struct Iterator {
++		_FORCE_INLINE_ T &operator*() const {
++			return *elem_ptr;
++		}
++		_FORCE_INLINE_ T *operator->() const { return elem_ptr; }
++		_FORCE_INLINE_ Iterator &operator++() {
++			elem_ptr++;
++			return *this;
++		}
++		_FORCE_INLINE_ Iterator &operator--() {
++			elem_ptr--;
++			return *this;
++		}
++
++		_FORCE_INLINE_ bool operator==(const Iterator &b) const { return elem_ptr == b.elem_ptr; }
++		_FORCE_INLINE_ bool operator!=(const Iterator &b) const { return elem_ptr != b.elem_ptr; }
++
++		Iterator(T *p_ptr) { elem_ptr = p_ptr; }
++		Iterator() {}
++		Iterator(const Iterator &p_it) { elem_ptr = p_it.elem_ptr; }
++
++	private:
++		T *elem_ptr = nullptr;
++	};
++
++	struct ConstIterator {
++		_FORCE_INLINE_ const T &operator*() const {
++			return *elem_ptr;
++		}
++		_FORCE_INLINE_ const T *operator->() const { return elem_ptr; }
++		_FORCE_INLINE_ ConstIterator &operator++() {
++			elem_ptr++;
++			return *this;
++		}
++		_FORCE_INLINE_ ConstIterator &operator--() {
++			elem_ptr--;
++			return *this;
++		}
++
++		_FORCE_INLINE_ bool operator==(const ConstIterator &b) const { return elem_ptr == b.elem_ptr; }
++		_FORCE_INLINE_ bool operator!=(const ConstIterator &b) const { return elem_ptr != b.elem_ptr; }
++
++		ConstIterator(const T *p_ptr) { elem_ptr = p_ptr; }
++		ConstIterator() {}
++		ConstIterator(const ConstIterator &p_it) { elem_ptr = p_it.elem_ptr; }
++
++	private:
++		const T *elem_ptr = nullptr;
++	};
++
++	_FORCE_INLINE_ Iterator begin() {
++		return Iterator(ptrw());
++	}
++	_FORCE_INLINE_ Iterator end() {
++		return Iterator(ptrw() + size());
++	}
++
++	_FORCE_INLINE_ ConstIterator begin() const {
++		return ConstIterator(ptr());
++	}
++	_FORCE_INLINE_ ConstIterator end() const {
++		return ConstIterator(ptr() + size());
++	}
++
+ 	inline T &operator[](int p_index) {
+ 		return _data.write[p_index];
+ 	}
+diff --git a/drivers/gles3/rasterizer_canvas_gles3.cpp b/drivers/gles3/rasterizer_canvas_gles3.cpp
+index 3b570522c9..c13979d042 100644
+--- a/drivers/gles3/rasterizer_canvas_gles3.cpp
++++ b/drivers/gles3/rasterizer_canvas_gles3.cpp
+@@ -42,6 +42,7 @@
+ #include "drivers/gles3/storage/particles_storage.h"
+ #include "drivers/gles3/storage/texture_storage.h"
+ #include "drivers/gles3/storage/utilities.h"
++#include "servers/rendering/rendering_device_commons.h"
+ #include "servers/rendering/rendering_server_default.h"
+ #include "servers/rendering/rendering_server_globals.h"
+ #include "servers/rendering/rendering_server_types.h"
+@@ -641,7 +642,7 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
+ 			}
+ 		}
+ 
+-		GLES3::CanvasShaderData::BlendMode blend_mode = shader_data_cache ? shader_data_cache->blend_mode : GLES3::CanvasShaderData::BLEND_MODE_MIX;
++		StringName blend_mode = shader_data_cache ? shader_data_cache->blend_mode : RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 
+ 		if (!ci->repeat_size.x && !ci->repeat_size.y) {
+ 			_record_item_commands(ci, p_to_render_target, p_canvas_transform_inverse, current_clip, blend_mode, p_lights, index, batch_broken, r_sdf_used, Point2());
+@@ -680,7 +681,7 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
+ 	glDisable(GL_SCISSOR_TEST);
+ 	current_clip = nullptr;
+ 
+-	GLES3::CanvasShaderData::BlendMode last_blend_mode = GLES3::CanvasShaderData::BLEND_MODE_MIX;
++	StringName last_blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 	Color last_blend_color;
+ 
+ 	state.current_tex = RID();
+@@ -727,77 +728,32 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
+ 		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::BATCH_FLAGS, state.canvas_instance_batches[i].flags, shader_version, variant, specialization);
+ 		material_storage->shaders.canvas_shader.version_set_uniform(CanvasShaderGLES3::SPECULAR_SHININESS_IN, state.canvas_instance_batches[i].specular_shininess, shader_version, variant, specialization);
+ 
+-		GLES3::CanvasShaderData::BlendMode blend_mode = state.canvas_instance_batches[i].blend_mode;
++		StringName blend_mode = state.canvas_instance_batches[i].blend_mode;
+ 		Color blend_color = state.canvas_instance_batches[i].blend_color;
+ 
++		auto attachment = material_storage->get_blend_attachment(RSE::SHADER_CANVAS_ITEM, blend_mode, state.transparent_render_target);
++
+ 		if (last_blend_mode != blend_mode || last_blend_color != blend_color) {
+-			if (last_blend_mode == GLES3::CanvasShaderData::BLEND_MODE_DISABLED) {
+-				// re-enable it
+-				glEnable(GL_BLEND);
+-			} else if (blend_mode == GLES3::CanvasShaderData::BLEND_MODE_DISABLED) {
+-				// disable it
++			if (!attachment.enable_blend) {
+ 				glDisable(GL_BLEND);
+-			}
+-
+-			switch (blend_mode) {
+-				case GLES3::CanvasShaderData::BLEND_MODE_DISABLED: {
+-					// Nothing to do here.
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_LCD: {
+-					glBlendEquation(GL_FUNC_ADD);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-					} else {
+-						glBlendFuncSeparate(GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE);
+-					}
+-					glBlendColor(blend_color.r, blend_color.g, blend_color.b, blend_color.a);
+-
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_MIX: {
+-					glBlendEquation(GL_FUNC_ADD);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-					} else {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+-					}
+-
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_ADD: {
+-					glBlendEquation(GL_FUNC_ADD);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_SRC_ALPHA, GL_ONE);
+-					} else {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+-					}
++			} else if (attachment.enable_blend) {
++				glEnable(GL_BLEND);
+ 
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_SUB: {
+-					glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_SRC_ALPHA, GL_ONE);
+-					} else {
+-						glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ZERO, GL_ONE);
+-					}
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_MUL: {
+-					glBlendEquation(GL_FUNC_ADD);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
+-					} else {
+-						glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_ZERO, GL_ONE);
+-					}
++				glBlendEquationSeparate(
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.color_blend_op),
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.alpha_blend_op));
+ 
+-				} break;
+-				case GLES3::CanvasShaderData::BLEND_MODE_PMALPHA: {
+-					glBlendEquation(GL_FUNC_ADD);
+-					if (state.transparent_render_target) {
+-						glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-					} else {
+-						glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+-					}
++				glBlendFuncSeparate(
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_color_blend_factor),
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_color_blend_factor),
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_alpha_blend_factor),
++						RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_alpha_blend_factor));
+ 
+-				} break;
++				if (attachment.uses_blend_color) {
++					glBlendColor(blend_color.r, blend_color.g, blend_color.b, blend_color.a);
++				}
+ 			}
++
+ 			last_blend_mode = blend_mode;
+ 			last_blend_color = blend_color;
+ 		}
+@@ -811,7 +767,7 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
+ 	state.last_item_index += index;
+ }
+ 
+-void RasterizerCanvasGLES3::_record_item_commands(const Item *p_item, RID p_render_target, const Transform2D &p_canvas_transform_inverse, Item *&current_clip, GLES3::CanvasShaderData::BlendMode p_blend_mode, Light *p_lights, uint32_t &r_index, bool &r_batch_broken, bool &r_sdf_used, const Point2 &p_repeat_offset) {
++void RasterizerCanvasGLES3::_record_item_commands(const Item *p_item, RID p_render_target, const Transform2D &p_canvas_transform_inverse, Item *&current_clip, StringName p_blend_mode, Light *p_lights, uint32_t &r_index, bool &r_batch_broken, bool &r_sdf_used, const Point2 &p_repeat_offset) {
+ 	RSE::CanvasItemTextureFilter texture_filter = p_item->texture_filter == RSE::CANVAS_ITEM_TEXTURE_FILTER_DEFAULT ? state.default_filter : p_item->texture_filter;
+ 	const uint64_t specialization_command_mask = ~(CanvasShaderGLES3::USE_NINEPATCH | CanvasShaderGLES3::USE_PRIMITIVE | CanvasShaderGLES3::USE_ATTRIBUTES | CanvasShaderGLES3::USE_INSTANCING);
+ 
+@@ -908,12 +864,12 @@ void RasterizerCanvasGLES3::_record_item_commands(const Item *p_item, RID p_rend
+ 		state.instance_data_array[r_index].instance_uniforms_ofs = p_item->instance_allocated_shader_uniforms_offset;
+ 
+ 		Color blend_color = base_color;
+-		GLES3::CanvasShaderData::BlendMode blend_mode = p_blend_mode;
++		StringName blend_mode = p_blend_mode;
+ 		RSE::CanvasItemTextureRepeat texture_repeat = base_texture_repeat;
+ 		if (c->type == Item::Command::TYPE_RECT) {
+ 			const Item::CommandRect *rect = static_cast<const Item::CommandRect *>(c);
+ 			if (rect->flags & CANVAS_RECT_LCD) {
+-				blend_mode = GLES3::CanvasShaderData::BLEND_MODE_LCD;
++				blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_LCD);
+ 				blend_color = rect->modulate * base_color;
+ 			}
+ 
+diff --git a/drivers/gles3/rasterizer_canvas_gles3.h b/drivers/gles3/rasterizer_canvas_gles3.h
+index 6874d5d310..da4cc32da2 100644
+--- a/drivers/gles3/rasterizer_canvas_gles3.h
++++ b/drivers/gles3/rasterizer_canvas_gles3.h
+@@ -258,7 +258,7 @@ public:
+ 		RSE::CanvasItemTextureFilter filter = RSE::CANVAS_ITEM_TEXTURE_FILTER_MAX;
+ 		RSE::CanvasItemTextureRepeat repeat = RSE::CANVAS_ITEM_TEXTURE_REPEAT_MAX;
+ 
+-		GLES3::CanvasShaderData::BlendMode blend_mode = GLES3::CanvasShaderData::BLEND_MODE_MIX;
++		StringName blend_mode;
+ 		Color blend_color = Color(1.0, 1.0, 1.0, 1.0);
+ 
+ 		Item *clip = nullptr;
+@@ -357,7 +357,7 @@ public:
+ 
+ 	void canvas_render_items(RID p_to_render_target, Item *p_item_list, const Color &p_modulate, Light *p_light_list, Light *p_directional_list, const Transform2D &p_canvas_transform, RSE::CanvasItemTextureFilter p_default_filter, RSE::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_vertices_to_pixel, bool &r_sdf_used, RenderingServerTypes::RenderInfo *r_render_info = nullptr) override;
+ 	void _render_items(RID p_to_render_target, int p_item_count, const Transform2D &p_canvas_transform_inverse, Light *p_lights, bool &r_sdf_used, bool p_to_backbuffer = false, RenderingServerTypes::RenderInfo *r_render_info = nullptr, bool p_backbuffer_has_mipmaps = false);
+-	void _record_item_commands(const Item *p_item, RID p_render_target, const Transform2D &p_canvas_transform_inverse, Item *&current_clip, GLES3::CanvasShaderData::BlendMode p_blend_mode, Light *p_lights, uint32_t &r_index, bool &r_break_batch, bool &r_sdf_used, const Point2 &p_repeat_offset);
++	void _record_item_commands(const Item *p_item, RID p_render_target, const Transform2D &p_canvas_transform_inverse, Item *&current_clip, StringName p_blend_mode, Light *p_lights, uint32_t &r_index, bool &r_break_batch, bool &r_sdf_used, const Point2 &p_repeat_offset);
+ 	void _render_batch(Light *p_lights, uint32_t p_index, RenderingServerTypes::RenderInfo *r_render_info = nullptr);
+ 	bool _bind_material(GLES3::CanvasMaterialData *p_material_data, CanvasShaderGLES3::ShaderVariant p_variant, uint64_t p_specialization);
+ 	void _new_batch(bool &r_batch_broken);
+diff --git a/drivers/gles3/rasterizer_scene_gles3.cpp b/drivers/gles3/rasterizer_scene_gles3.cpp
+index bf410127d1..8ec1a01cb6 100644
+--- a/drivers/gles3/rasterizer_scene_gles3.cpp
++++ b/drivers/gles3/rasterizer_scene_gles3.cpp
+@@ -2387,6 +2387,7 @@ void RasterizerSceneGLES3::_render_shadow_pass(RID p_light, RID p_shadow_atlas,
+ 
+ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_buffers, const CameraData *p_camera_data, const CameraData *p_prev_camera_data, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RID> &p_lights, const PagedArray<RID> &p_reflection_probes, const PagedArray<RID> &p_voxel_gi_instances, const PagedArray<RID> &p_decals, const PagedArray<RID> &p_lightmaps, const PagedArray<RID> &p_fog_volumes, RID p_environment, RID p_camera_attributes, RID p_compositor, RID p_shadow_atlas, RID p_occluder_debug_tex, RID p_reflection_atlas, RID p_reflection_probe, int p_reflection_probe_pass, float p_screen_mesh_lod_threshold, const RenderShadowData *p_render_shadows, int p_render_shadow_count, const RenderSDFGIData *p_render_sdfgi_regions, int p_render_sdfgi_region_count, float p_window_output_max_value, const RenderSDFGIUpdateData *p_sdfgi_update_data, RenderingServerTypes::RenderInfo *r_render_info) {
+ 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
++	GLES3::MaterialStorage *material_storage = GLES3::MaterialStorage::get_singleton();
+ 	GLES3::Config *config = GLES3::Config::get_singleton();
+ 	RENDER_TIMESTAMP("Setup 3D Scene");
+ 
+@@ -2492,7 +2493,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
+ 	// Fill Light lists here
+ 	//////////
+ 
+-	GLuint global_buffer = GLES3::MaterialStorage::get_singleton()->global_shader_parameters_get_uniform_buffer();
++	GLuint global_buffer = material_storage->global_shader_parameters_get_uniform_buffer();
+ 	glBindBufferBase(GL_UNIFORM_BUFFER, SCENE_GLOBALS_UNIFORM_LOCATION, global_buffer);
+ 
+ 	Color clear_color;
+@@ -2596,7 +2597,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
+ 				clear_color.b *= bg_energy_multiplier;
+ 				if (!render_data.transparent_bg && environment_get_fog_enabled(render_data.environment)) {
+ 					draw_sky_fog_only = true;
+-					GLES3::MaterialStorage::get_singleton()->material_set_param(sky_globals.fog_material, "clear_color", Variant(clear_color));
++					material_storage->material_set_param(sky_globals.fog_material, "clear_color", Variant(clear_color));
+ 				}
+ 			} break;
+ 			case RSE::ENV_BG_COLOR: {
+@@ -2606,7 +2607,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
+ 				clear_color.b *= bg_energy_multiplier;
+ 				if (!render_data.transparent_bg && environment_get_fog_enabled(render_data.environment)) {
+ 					draw_sky_fog_only = true;
+-					GLES3::MaterialStorage::get_singleton()->material_set_param(sky_globals.fog_material, "clear_color", Variant(clear_color));
++					material_storage->material_set_param(sky_globals.fog_material, "clear_color", Variant(clear_color));
+ 				}
+ 			} break;
+ 			case RSE::ENV_BG_SKY: {
+@@ -2761,7 +2762,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
+ 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+ 		scene_state.enable_gl_blend(false);
+ 	}
+-	scene_state.current_blend_mode = GLES3::SceneShaderData::BLEND_MODE_MIX;
++	scene_state.current_blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 
+ 	scene_state.enable_gl_scissor_test(false);
+ 	scene_state.enable_gl_depth_test(true);
+@@ -2846,7 +2847,7 @@ void RasterizerSceneGLES3::render_scene(const Ref<RenderSceneBuffers> &p_render_
+ 
+ 		if (feed.is_valid()) {
+ 			RID camera_YCBCR = feed->get_texture(CameraServer::FEED_YCBCR_IMAGE);
+-			GLES3::TextureStorage::get_singleton()->texture_bind(camera_YCBCR, 0);
++			texture_storage->texture_bind(camera_YCBCR, 0);
+ 
+ 			GLES3::FeedEffects *feed_effects = GLES3::FeedEffects::get_singleton();
+ 			feed_effects->draw();
+@@ -3400,51 +3401,25 @@ void RasterizerSceneGLES3::_render_list_template(RenderListParameters *p_params,
+ 			}
+ 
+ 			if constexpr (p_pass_mode == PASS_MODE_COLOR || p_pass_mode == PASS_MODE_COLOR_TRANSPARENT) {
+-				GLES3::SceneShaderData::BlendMode desired_blend_mode;
++				StringName desired_blend_mode;
+ 				if (pass > 0) {
+-					desired_blend_mode = GLES3::SceneShaderData::BLEND_MODE_ADD;
++					desired_blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_ADD);
+ 				} else {
+ 					desired_blend_mode = shader->blend_mode;
+ 				}
+ 
+ 				if (desired_blend_mode != scene_state.current_blend_mode) {
+-					switch (desired_blend_mode) {
+-						case GLES3::SceneShaderData::BLEND_MODE_MIX: {
+-							glBlendEquation(GL_FUNC_ADD);
+-							if (p_render_data->transparent_bg) {
+-								glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-							} else {
+-								glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+-							}
+-
+-						} break;
+-						case GLES3::SceneShaderData::BLEND_MODE_ADD: {
+-							glBlendEquation(GL_FUNC_ADD);
+-							glBlendFunc(p_pass_mode == PASS_MODE_COLOR_TRANSPARENT ? GL_SRC_ALPHA : GL_ONE, GL_ONE);
+-
+-						} break;
+-						case GLES3::SceneShaderData::BLEND_MODE_SUB: {
+-							glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+-							glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+-
+-						} break;
+-						case GLES3::SceneShaderData::BLEND_MODE_MUL: {
+-							glBlendEquation(GL_FUNC_ADD);
+-							if (p_render_data->transparent_bg) {
+-								glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
+-							} else {
+-								glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_ZERO, GL_ONE);
+-							}
+-
+-						} break;
+-						case GLES3::SceneShaderData::BLEND_MODE_PREMULT_ALPHA: {
+-							glBlendEquation(GL_FUNC_ADD);
+-							glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-
+-						} break;
+-						case GLES3::SceneShaderData::BLEND_MODE_ALPHA_TO_COVERAGE: {
+-							// Do nothing for now.
+-						} break;
++					auto attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, desired_blend_mode, p_render_data->transparent_bg);
++
++					if (attachment.enable_blend) {
++						glBlendEquationSeparate(
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.color_blend_op),
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.alpha_blend_op));
++						glBlendFuncSeparate(
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_color_blend_factor),
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_alpha_blend_factor),
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_color_blend_factor),
++								RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_alpha_blend_factor));
+ 					}
+ 					scene_state.current_blend_mode = desired_blend_mode;
+ 				}
+diff --git a/drivers/gles3/rasterizer_scene_gles3.h b/drivers/gles3/rasterizer_scene_gles3.h
+index bfe558ddf3..dec98b4223 100644
+--- a/drivers/gles3/rasterizer_scene_gles3.h
++++ b/drivers/gles3/rasterizer_scene_gles3.h
+@@ -490,7 +490,7 @@ private:
+ 
+ 		bool used_depth_prepass = false;
+ 
+-		GLES3::SceneShaderData::BlendMode current_blend_mode = GLES3::SceneShaderData::BLEND_MODE_MIX;
++		StringName current_blend_mode;
+ 		RSE::CullMode cull_mode = RSE::CULL_MODE_BACK;
+ 		GLenum current_depth_function = GL_GEQUAL;
+ 
+diff --git a/drivers/gles3/rasterizer_util_gles3.h b/drivers/gles3/rasterizer_util_gles3.h
+index ef6568a637..91edc0dc3c 100644
+--- a/drivers/gles3/rasterizer_util_gles3.h
++++ b/drivers/gles3/rasterizer_util_gles3.h
+@@ -30,6 +30,11 @@
+ 
+ #pragma once
+ 
++#include "platform_gl.h"
++
++#include "servers/rendering/rendering_device.h"
++#include "servers/rendering/rendering_device_commons.h"
++
+ #include <cstdint>
+ 
+ // This class is meant to hold static utility methods with minimal dependencies.
+@@ -48,4 +53,79 @@ public:
+ 
+ 	static void clear_depth(float p_depth);
+ 	static void clear_stencil(int32_t p_stencil);
++
++	static GLuint RD_TO_GL_BLEND_FUNC(RD::BlendOperation op) {
++		switch (op) {
++			case RD::BLEND_OP_ADD:
++				return GL_FUNC_ADD;
++			case RD::BLEND_OP_SUBTRACT:
++				return GL_FUNC_SUBTRACT;
++			case RD::BLEND_OP_REVERSE_SUBTRACT:
++				return GL_FUNC_REVERSE_SUBTRACT;
++			case RD::BLEND_OP_MINIMUM:
++				return GL_MIN;
++			case RD::BLEND_OP_MAXIMUM:
++				return GL_MAX;
++			case RD::BLEND_OP_MAX:
++				return GL_MAX;
++			default:
++				break;
++		}
++
++		return GL_FUNC_ADD;
++	}
++
++	static GLuint RD_TO_GL_BLEND_FACTOR(RD::BlendFactor f) {
++		switch (f) {
++			case RD::BLEND_FACTOR_ZERO:
++				return GL_ZERO;
++			case RD::BLEND_FACTOR_ONE:
++				return GL_ONE;
++			case RD::BLEND_FACTOR_SRC_COLOR:
++				return GL_SRC_COLOR;
++			case RD::BLEND_FACTOR_ONE_MINUS_SRC_COLOR:
++				return GL_ONE_MINUS_SRC_COLOR;
++			case RD::BLEND_FACTOR_DST_COLOR:
++				return GL_DST_COLOR;
++			case RD::BLEND_FACTOR_ONE_MINUS_DST_COLOR:
++				return GL_ONE_MINUS_DST_COLOR;
++			case RD::BLEND_FACTOR_SRC_ALPHA:
++				return GL_SRC_ALPHA;
++			case RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA:
++				return GL_ONE_MINUS_SRC_ALPHA;
++			case RD::BLEND_FACTOR_DST_ALPHA:
++				return GL_ONE_MINUS_DST_ALPHA;
++			case RD::BLEND_FACTOR_ONE_MINUS_DST_ALPHA:
++				return GL_ONE_MINUS_DST_ALPHA;
++			case RD::BLEND_FACTOR_CONSTANT_COLOR:
++				return GL_CONSTANT_COLOR;
++			case RD::BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR:
++				return GL_ONE_MINUS_CONSTANT_COLOR;
++			case RD::BLEND_FACTOR_CONSTANT_ALPHA:
++				return GL_CONSTANT_ALPHA;
++			case RD::BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA:
++				return GL_ONE_MINUS_CONSTANT_ALPHA;
++			case RD::BLEND_FACTOR_SRC_ALPHA_SATURATE:
++				return GL_SRC_ALPHA_SATURATE;
++// blend factors only supported on desktop opengl
++#ifdef GL_API_ENABLED
++			case RD::BLEND_FACTOR_SRC1_COLOR:
++				return GL_SRC1_COLOR;
++			case RD::BLEND_FACTOR_ONE_MINUS_SRC1_COLOR:
++				return GL_ONE_MINUS_SRC1_COLOR;
++			case RD::BLEND_FACTOR_SRC1_ALPHA:
++				return GL_SRC1_ALPHA;
++			case RD::BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA:
++				return GL_ONE_MINUS_SRC1_ALPHA;
++#endif
++			case RD::BLEND_FACTOR_MIN:
++				return GL_MIN;
++			case RD::BLEND_FACTOR_MAX:
++				return GL_MAX;
++			default:
++				break;
++		}
++
++		return GL_ONE;
++	}
+ };
+diff --git a/drivers/gles3/storage/material_storage.cpp b/drivers/gles3/storage/material_storage.cpp
+index de059cc379..c2e95dd77a 100644
+--- a/drivers/gles3/storage/material_storage.cpp
++++ b/drivers/gles3/storage/material_storage.cpp
+@@ -39,6 +39,7 @@
+ #include "drivers/gles3/rasterizer_gles3.h"
+ #include "drivers/gles3/storage/config.h"
+ #include "drivers/gles3/storage/texture_storage.h"
++#include "servers/rendering/rendering_device_commons.h"
+ #include "servers/rendering/rendering_server_types.h"
+ #include "servers/rendering/storage/variant_converters.h"
+ 
+@@ -1592,6 +1593,251 @@ MaterialStorage::MaterialStorage() {
+ 
+ 		shaders.compiler_tex_blit.initialize(actions);
+ 	}
++
++	// register default blend modes
++	// canvas blends
++	{
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_DST_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_PREMULTIPLIED_ALPHA,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_LCD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						true),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_CONSTANT_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						true),
++				false);
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
++	// spatial blends
++	{
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						false,
++						true));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						false,
++						true));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						false,
++						true),
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_DST_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_PREMULTIPLIED_ALPHA,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
++
++	// texture blit
++	{
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_SRC_ALPHA,
++						RenderingDeviceCommons::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						false,
++						true));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_FACTOR_ONE,
++						RenderingDeviceCommons::BLEND_OP_REVERSE_SUBTRACT,
++						false,
++						true));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RenderingDeviceCommons::BLEND_FACTOR_DST_COLOR,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						RenderingDeviceCommons::BLEND_FACTOR_DST_ALPHA,
++						RenderingDeviceCommons::BLEND_FACTOR_ZERO,
++						RenderingDeviceCommons::BLEND_OP_ADD,
++						false,
++						true));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
+ }
+ 
+ MaterialStorage::~MaterialStorage() {
+@@ -2649,6 +2895,8 @@ LocalVector<ShaderGLES3::TextureUniformData> get_texture_uniform_data(const Vect
+ /* Canvas Shader Data */
+ 
+ void CanvasShaderData::set_code(const String &p_code) {
++	MaterialStorage *material_storage = MaterialStorage::get_singleton();
++
+ 	// Initialize and compile the shader.
+ 
+ 	code = p_code;
+@@ -2670,19 +2918,19 @@ void CanvasShaderData::set_code(const String &p_code) {
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+ 	// Actual enum set further down after compilation.
+-	int blend_modei = BLEND_MODE_MIX;
+-
+ 	ShaderCompiler::IdentifierActions actions;
+ 	actions.entry_point_stages["vertex"] = ShaderCompiler::STAGE_VERTEX;
+ 	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+ 	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_modei, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_modei, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_premul_alpha"] = Pair<int *, int>(&blend_modei, BLEND_MODE_PMALPHA);
+-	actions.render_mode_values["blend_disabled"] = Pair<int *, int>(&blend_modei, BLEND_MODE_DISABLED);
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
++
++	int blend_modei = -1;
++	auto modes = material_storage->get_blend_modes(RSE::SHADER_CANVAS_ITEM);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.usage_flag_pointers["texture_sdf"] = &uses_sdf;
+ 	actions.usage_flag_pointers["texture_sdf_normal"] = &uses_sdf;
+@@ -2691,14 +2939,17 @@ void CanvasShaderData::set_code(const String &p_code) {
+ 	actions.usage_flag_pointers["CUSTOM1"] = &uses_custom1;
+ 
+ 	actions.uniforms = &uniforms;
+-	Error err = MaterialStorage::get_singleton()->shaders.compiler_canvas.compile(RSE::SHADER_CANVAS_ITEM, code, &actions, path, gen_code);
++	Error err = material_storage->shaders.compiler_canvas.compile(RSE::SHADER_CANVAS_ITEM, code, &actions, path, gen_code);
+ 	ERR_FAIL_COND_MSG(err != OK, "Shader compilation failed.");
+ 
+ 	if (version.is_null()) {
+-		version = MaterialStorage::get_singleton()->shaders.canvas_shader.version_create();
++		version = material_storage->shaders.canvas_shader.version_create();
++	}
++
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
+ 	}
+ 
+-	blend_mode = BlendMode(blend_modei);
+ 	uses_screen_texture = gen_code.uses_screen_texture;
+ 	uses_screen_texture_mipmaps = gen_code.uses_screen_texture_mipmaps;
+ 
+@@ -2722,8 +2973,8 @@ void CanvasShaderData::set_code(const String &p_code) {
+ 
+ 	LocalVector<ShaderGLES3::TextureUniformData> texture_uniform_data = get_texture_uniform_data(gen_code.texture_uniforms);
+ 
+-	MaterialStorage::get_singleton()->shaders.canvas_shader.version_set_code(version, gen_code.code, gen_code.uniforms, gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX], gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT], gen_code.defines, texture_uniform_data);
+-	ERR_FAIL_COND(!MaterialStorage::get_singleton()->shaders.canvas_shader.version_is_valid(version));
++	material_storage->shaders.canvas_shader.version_set_code(version, gen_code.code, gen_code.uniforms, gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX], gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT], gen_code.defines, texture_uniform_data);
++	ERR_FAIL_COND(!material_storage->shaders.canvas_shader.version_is_valid(version));
+ 
+ 	vertex_input_mask = RSE::ARRAY_FORMAT_VERTEX | RSE::ARRAY_FORMAT_COLOR | RSE::ARRAY_FORMAT_TEX_UV;
+ 	vertex_input_mask |= uses_custom0 << RSE::ARRAY_CUSTOM0;
+@@ -2963,6 +3214,8 @@ void SkyMaterialData::bind_uniforms() {
+ // Scene SHADER
+ 
+ void SceneShaderData::set_code(const String &p_code) {
++	MaterialStorage *material_storage = MaterialStorage::get_singleton();
++
+ 	// Initialize and compile the shader.
+ 
+ 	code = p_code;
+@@ -3015,7 +3268,6 @@ void SceneShaderData::set_code(const String &p_code) {
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+ 	// Actual enums set further down after compilation.
+-	int blend_modei = BLEND_MODE_MIX;
+ 	int depth_test_disabledi = 0;
+ 	int depth_test_invertedi = 0;
+ 	int alpha_antialiasing_modei = ALPHA_ANTIALIASING_OFF;
+@@ -3033,11 +3285,14 @@ void SceneShaderData::set_code(const String &p_code) {
+ 	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+ 	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_modei, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_modei, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_premul_alpha"] = Pair<int *, int>(&blend_modei, BLEND_MODE_PREMULT_ALPHA);
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
++
++	int blend_modei = -1;
++	auto modes = material_storage->get_blend_modes(RSE::SHADER_SPATIAL);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.render_mode_values["alpha_to_coverage"] = Pair<int *, int>(&alpha_antialiasing_modei, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE);
+ 	actions.render_mode_values["alpha_to_coverage_and_one"] = Pair<int *, int>(&alpha_antialiasing_modei, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE_AND_TO_ONE);
+@@ -3115,14 +3370,16 @@ void SceneShaderData::set_code(const String &p_code) {
+ 
+ 	actions.uniforms = &uniforms;
+ 
+-	Error err = MaterialStorage::get_singleton()->shaders.compiler_scene.compile(RSE::SHADER_SPATIAL, code, &actions, path, gen_code);
++	Error err = material_storage->shaders.compiler_scene.compile(RSE::SHADER_SPATIAL, code, &actions, path, gen_code);
+ 	ERR_FAIL_COND_MSG(err != OK, "Shader compilation failed.");
+ 
+ 	if (version.is_null()) {
+-		version = MaterialStorage::get_singleton()->shaders.scene_shader.version_create();
++		version = material_storage->shaders.scene_shader.version_create();
+ 	}
+ 
+-	blend_mode = BlendMode(blend_modei);
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
+ 	alpha_antialiasing_mode = AlphaAntiAliasing(alpha_antialiasing_modei);
+ 	depth_draw = DepthDraw(depth_drawi);
+ 	if (depth_test_disabledi) {
+@@ -3196,8 +3453,8 @@ void SceneShaderData::set_code(const String &p_code) {
+ 
+ 	LocalVector<ShaderGLES3::TextureUniformData> texture_uniform_data = get_texture_uniform_data(gen_code.texture_uniforms);
+ 
+-	MaterialStorage::get_singleton()->shaders.scene_shader.version_set_code(version, gen_code.code, gen_code.uniforms, gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX], gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT], gen_code.defines, texture_uniform_data);
+-	ERR_FAIL_COND(!MaterialStorage::get_singleton()->shaders.scene_shader.version_is_valid(version));
++	material_storage->shaders.scene_shader.version_set_code(version, gen_code.code, gen_code.uniforms, gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX], gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT], gen_code.defines, texture_uniform_data);
++	ERR_FAIL_COND(!material_storage->shaders.scene_shader.version_is_valid(version));
+ 
+ 	ubo_size = gen_code.uniform_total_size;
+ 	ubo_offsets = gen_code.uniform_offsets;
+@@ -3205,12 +3462,11 @@ void SceneShaderData::set_code(const String &p_code) {
+ 
+ 	// If any form of Alpha Antialiasing is enabled, set the blend mode to alpha to coverage.
+ 	if (alpha_antialiasing_mode != ALPHA_ANTIALIASING_OFF) {
+-		blend_mode = BLEND_MODE_ALPHA_TO_COVERAGE;
++		blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_ALPHA_TO_COVERAGE);
+ 	}
+ 
+-	if (blend_mode == BLEND_MODE_ADD || blend_mode == BLEND_MODE_SUB || blend_mode == BLEND_MODE_MUL) {
+-		uses_blend_alpha = true; // Force alpha used because of blend.
+-	}
++	auto attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, blend_mode, false);
++	uses_blend_alpha = attachment.uses_blend_alpha;
+ 
+ 	valid = true;
+ }
+@@ -3381,6 +3637,8 @@ void ParticleProcessMaterialData::bind_uniforms() {
+ /* TextureBlit SHADER */
+ 
+ void TexBlitShaderData::set_code(const String &p_code) {
++	MaterialStorage *material_storage = MaterialStorage::get_singleton();
++
+ 	// Initialize and compile the shader.
+ 
+ 	code = p_code;
+@@ -3395,26 +3653,29 @@ void TexBlitShaderData::set_code(const String &p_code) {
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+ 	// Actual enum set further down after compilation.
+-	int blend_modei = BLEND_MODE_MIX;
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 
+ 	ShaderCompiler::IdentifierActions actions;
+ 	actions.entry_point_stages["blit"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_modei, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_modei, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_disabled"] = Pair<int *, int>(&blend_modei, BLEND_MODE_DISABLED);
++	int blend_modei = -1;
++	auto modes = material_storage->get_blend_modes(RSE::SHADER_TEXTURE_BLIT);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.uniforms = &uniforms;
+-	Error err = MaterialStorage::get_singleton()->shaders.compiler_tex_blit.compile(RSE::SHADER_TEXTURE_BLIT, code, &actions, path, gen_code);
++	Error err = material_storage->shaders.compiler_tex_blit.compile(RSE::SHADER_TEXTURE_BLIT, code, &actions, path, gen_code);
+ 	ERR_FAIL_COND_MSG(err != OK, "Shader compilation failed.");
+ 
+ 	if (version.is_null()) {
+-		version = MaterialStorage::get_singleton()->shaders.tex_blit_shader.version_create();
++		version = material_storage->shaders.tex_blit_shader.version_create();
+ 	}
+ 
+-	blend_mode = BlendMode(blend_modei);
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
+ 
+ #if 0
+ 	print_line("**compiling shader:");
+diff --git a/drivers/gles3/storage/material_storage.h b/drivers/gles3/storage/material_storage.h
+index 982e7b2844..6d49806691 100644
+--- a/drivers/gles3/storage/material_storage.h
++++ b/drivers/gles3/storage/material_storage.h
+@@ -137,16 +137,6 @@ struct Material {
+ /* CanvasItem Materials */
+ 
+ struct CanvasShaderData : public ShaderData {
+-	enum BlendMode { // Used internally.
+-		BLEND_MODE_MIX,
+-		BLEND_MODE_ADD,
+-		BLEND_MODE_SUB,
+-		BLEND_MODE_MUL,
+-		BLEND_MODE_PMALPHA,
+-		BLEND_MODE_DISABLED,
+-		BLEND_MODE_LCD,
+-	};
+-
+ 	// All these members are (re)initialized in `set_code`.
+ 	// Make sure to add the init to `set_code` whenever adding new members.
+ 
+@@ -160,7 +150,7 @@ struct CanvasShaderData : public ShaderData {
+ 
+ 	String code;
+ 
+-	BlendMode blend_mode;
++	StringName blend_mode;
+ 
+ 	bool uses_screen_texture;
+ 	bool uses_screen_texture_mipmaps;
+@@ -242,15 +232,6 @@ MaterialData *_create_sky_material_func(ShaderData *p_shader);
+ /* Scene Materials */
+ 
+ struct SceneShaderData : public ShaderData {
+-	enum BlendMode { // Used internally.
+-		BLEND_MODE_MIX,
+-		BLEND_MODE_ADD,
+-		BLEND_MODE_SUB,
+-		BLEND_MODE_MUL,
+-		BLEND_MODE_PREMULT_ALPHA,
+-		BLEND_MODE_ALPHA_TO_COVERAGE
+-	};
+-
+ 	enum DepthDraw {
+ 		DEPTH_DRAW_DISABLED,
+ 		DEPTH_DRAW_OPAQUE,
+@@ -299,7 +280,7 @@ struct SceneShaderData : public ShaderData {
+ 
+ 	String code;
+ 
+-	BlendMode blend_mode;
++	StringName blend_mode;
+ 	AlphaAntiAliasing alpha_antialiasing_mode;
+ 	DepthDraw depth_draw;
+ 	DepthTest depth_test;
+@@ -429,14 +410,6 @@ MaterialData *_create_particles_material_func(ShaderData *p_shader);
+ /* Texture Blit Shader */
+ 
+ struct TexBlitShaderData : public ShaderData {
+-	enum BlendMode { // Used internally.
+-		BLEND_MODE_MIX,
+-		BLEND_MODE_ADD,
+-		BLEND_MODE_SUB,
+-		BLEND_MODE_MUL,
+-		BLEND_MODE_DISABLED,
+-	};
+-
+ 	bool valid;
+ 	RID version;
+ 
+@@ -447,7 +420,7 @@ struct TexBlitShaderData : public ShaderData {
+ 
+ 	String code;
+ 
+-	BlendMode blend_mode;
++	StringName blend_mode;
+ 
+ 	virtual void set_code(const String &p_code);
+ 	virtual bool is_animated() const;
+diff --git a/drivers/gles3/storage/texture_storage.cpp b/drivers/gles3/storage/texture_storage.cpp
+index 83f8e898a8..58f633a87d 100644
+--- a/drivers/gles3/storage/texture_storage.cpp
++++ b/drivers/gles3/storage/texture_storage.cpp
+@@ -1457,32 +1457,23 @@ void TextureStorage::texture_drawable_blit_rect(const TypedArray<RID> &p_texture
+ 	material_storage->shaders.tex_blit_shader.version_set_uniform(TexBlitShaderGLES3::TIME, RasterizerGLES3::get_singleton()->get_total_time(), version, variant, specialization);
+ 
+ 	// Set Blend_Mode correctly
+-	GLES3::TexBlitShaderData::BlendMode blend_mode = m->shader_data->blend_mode;
+-	glEnable(GL_BLEND);
+-	switch (blend_mode) {
+-		case GLES3::TexBlitShaderData::BLEND_MODE_ADD:
+-			glBlendEquation(GL_FUNC_ADD);
+-			glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+-			break;
+-
+-		case GLES3::TexBlitShaderData::BLEND_MODE_SUB:
+-			glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+-			glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+-			break;
++	StringName blend_mode = m->shader_data->blend_mode;
++	auto attachment = material_storage->get_blend_attachment(RSE::SHADER_TEXTURE_BLIT, blend_mode);
+ 
+-		case GLES3::TexBlitShaderData::BLEND_MODE_MIX:
+-			glBlendEquation(GL_FUNC_ADD);
+-			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+-			break;
++	if (attachment.enable_blend) {
++		glEnable(GL_BLEND);
+ 
+-		case GLES3::TexBlitShaderData::BLEND_MODE_MUL:
+-			glBlendEquation(GL_FUNC_ADD);
+-			glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
+-			break;
++		glBlendEquationSeparate(
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.color_blend_op),
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FUNC(attachment.alpha_blend_op));
+ 
+-		case GLES3::TexBlitShaderData::BLEND_MODE_DISABLED:
+-			glDisable(GL_BLEND);
+-			break;
++		glBlendFuncSeparate(
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_color_blend_factor),
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_color_blend_factor),
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.src_alpha_blend_factor),
++				RasterizerUtilGLES3::RD_TO_GL_BLEND_FACTOR(attachment.dst_alpha_blend_factor));
++	} else {
++		glDisable(GL_BLEND);
+ 	}
+ 
+ 	glDrawBuffers(draw_buffers.size(), draw_buffers.ptr());
+diff --git a/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.cpp b/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.cpp
+index 44a97f3594..861ae8f5ac 100644
+--- a/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.cpp
++++ b/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.cpp
+@@ -35,10 +35,13 @@
+ #include "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.h"
+ #include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
+ #include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
++#include "servers/rendering/storage/material_storage.h"
+ 
+ using namespace RendererSceneRenderImplementation;
+ 
+ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
++
+ 	//compile
+ 
+ 	code = p_code;
+@@ -52,7 +55,7 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
+ 
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+-	blend_mode = BLEND_MODE_MIX;
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 	depth_test_disabledi = 0;
+ 	depth_test_invertedi = 0;
+ 	alpha_antialiasing_mode = ALPHA_ANTIALIASING_OFF;
+@@ -97,11 +100,12 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
+ 	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+ 	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_mode, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_mode, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_premul_alpha"] = Pair<int *, int>(&blend_mode, BLEND_MODE_PREMULTIPLIED_ALPHA);
++	int blend_modei = -1;
++	Vector<StringName> modes = material_storage->get_blend_modes(RSE::SHADER_SPATIAL);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.render_mode_values["alpha_to_coverage"] = Pair<int *, int>(&alpha_antialiasing_mode, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE);
+ 	actions.render_mode_values["alpha_to_coverage_and_one"] = Pair<int *, int>(&alpha_antialiasing_mode, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE_AND_TO_ONE);
+@@ -189,6 +193,10 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
+ 		version = SceneShaderForwardClustered::singleton->shader.version_create(false);
+ 	}
+ 
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
++
+ 	depth_draw = DepthDraw(depth_drawi);
+ 	if (depth_test_disabledi) {
+ 		depth_test = DEPTH_TEST_DISABLED;
+@@ -241,10 +249,11 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
+ 
+ 	// If any form of Alpha Antialiasing is enabled, set the blend mode to alpha to coverage.
+ 	if (alpha_antialiasing_mode != ALPHA_ANTIALIASING_OFF) {
+-		blend_mode = BLEND_MODE_ALPHA_TO_COVERAGE;
++		blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_ALPHA_TO_COVERAGE);
+ 	}
+ 
+-	uses_blend_alpha = blend_mode_uses_blend_alpha(BlendMode(blend_mode));
++	auto attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, blend_mode);
++	uses_blend_alpha = attachment.uses_blend_alpha;
+ }
+ 
+ bool SceneShaderForwardClustered::ShaderData::is_animated() const {
+@@ -342,9 +351,10 @@ void SceneShaderForwardClustered::ShaderData::_create_pipeline(PipelineKey p_pip
+ 			"SPEC PACKED #0:", p_pipeline_key.shader_specialization.packed_0,
+ 			"WIREFRAME:", p_pipeline_key.wireframe);
+ #endif
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
+ 
+ 	// Color pass -> attachment 0: Color/Diffuse, attachment 1: Separate Specular, attachment 2: Motion Vectors
+-	RD::PipelineColorBlendState::Attachment blend_attachment = blend_mode_to_blend_attachment(BlendMode(blend_mode));
++	RD::PipelineColorBlendState::Attachment blend_attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, blend_mode);
+ 	RD::PipelineColorBlendState blend_state_color_blend;
+ 	blend_state_color_blend.attachments = { blend_attachment, RD::PipelineColorBlendState::Attachment(), RD::PipelineColorBlendState::Attachment() };
+ 	RD::PipelineColorBlendState blend_state_color_opaque = RD::PipelineColorBlendState::create_disabled(3);
+diff --git a/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.h b/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.h
+index a9d78890a3..ffdcb5400a 100644
+--- a/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.h
++++ b/servers/rendering/renderer_rd/forward_clustered/scene_shader_forward_clustered.h
+@@ -233,7 +233,7 @@ public:
+ 		DepthDraw depth_draw = DEPTH_DRAW_OPAQUE;
+ 		DepthTest depth_test = DEPTH_TEST_ENABLED;
+ 
+-		int blend_mode = BLEND_MODE_MIX;
++		StringName blend_mode;
+ 		int depth_test_disabledi = 0;
+ 		int depth_test_invertedi = 0;
+ 		int alpha_antialiasing_mode = ALPHA_ANTIALIASING_OFF;
+diff --git a/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.cpp b/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.cpp
+index 0d598bf149..200911e237 100644
+--- a/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.cpp
++++ b/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.cpp
+@@ -41,6 +41,7 @@ using namespace RendererSceneRenderImplementation;
+ /* ShaderData */
+ 
+ void SceneShaderForwardMobile::ShaderData::set_code(const String &p_code) {
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
+ 	//compile
+ 
+ 	code = p_code;
+@@ -54,7 +55,7 @@ void SceneShaderForwardMobile::ShaderData::set_code(const String &p_code) {
+ 
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+-	blend_mode = BLEND_MODE_MIX;
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 	depth_test_disabledi = 0;
+ 	depth_test_invertedi = 0;
+ 	alpha_antialiasing_mode = ALPHA_ANTIALIASING_OFF;
+@@ -97,11 +98,12 @@ void SceneShaderForwardMobile::ShaderData::set_code(const String &p_code) {
+ 	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+ 	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_mode, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_mode, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_premul_alpha"] = Pair<int *, int>(&blend_mode, BLEND_MODE_PREMULTIPLIED_ALPHA);
++	int blend_modei = -1;
++	Vector<StringName> modes = material_storage->get_blend_modes(RSE::SHADER_SPATIAL);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.render_mode_values["alpha_to_coverage"] = Pair<int *, int>(&alpha_antialiasing_mode, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE);
+ 	actions.render_mode_values["alpha_to_coverage_and_one"] = Pair<int *, int>(&alpha_antialiasing_mode, ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE_AND_TO_ONE);
+@@ -184,6 +186,10 @@ void SceneShaderForwardMobile::ShaderData::set_code(const String &p_code) {
+ 		version = SceneShaderForwardMobile::singleton->shader.version_create(false);
+ 	}
+ 
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
++
+ 	depth_draw = DepthDraw(depth_drawi);
+ 	if (depth_test_disabledi) {
+ 		depth_test = DEPTH_TEST_DISABLED;
+@@ -246,10 +252,11 @@ void SceneShaderForwardMobile::ShaderData::set_code(const String &p_code) {
+ 
+ 	// If any form of Alpha Antialiasing is enabled, set the blend mode to alpha to coverage.
+ 	if (alpha_antialiasing_mode != ALPHA_ANTIALIASING_OFF) {
+-		blend_mode = BLEND_MODE_ALPHA_TO_COVERAGE;
++		blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_ALPHA_TO_COVERAGE);
+ 	}
+ 
+-	uses_blend_alpha = blend_mode_uses_blend_alpha(BlendMode(blend_mode));
++	auto attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, blend_mode);
++	uses_blend_alpha = attachment.uses_blend_alpha;
+ }
+ 
+ bool SceneShaderForwardMobile::ShaderData::is_animated() const {
+@@ -298,8 +305,9 @@ void SceneShaderForwardMobile::ShaderData::_create_pipeline(PipelineKey p_pipeli
+ 			"RENDER PASS:", p_pipeline_key.render_pass,
+ 			"WIREFRAME:", p_pipeline_key.wireframe);
+ #endif
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
+ 
+-	RD::PipelineColorBlendState::Attachment blend_attachment = blend_mode_to_blend_attachment(BlendMode(blend_mode));
++	RD::PipelineColorBlendState::Attachment blend_attachment = material_storage->get_blend_attachment(RSE::SHADER_SPATIAL, blend_mode);
+ 	RD::PipelineColorBlendState blend_state_blend;
+ 	blend_state_blend.attachments.push_back(blend_attachment);
+ 	RD::PipelineColorBlendState blend_state_opaque = RD::PipelineColorBlendState::create_disabled(1);
+diff --git a/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h b/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h
+index 78d7c94dfb..6471650143 100644
+--- a/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h
++++ b/servers/rendering/renderer_rd/forward_mobile/scene_shader_forward_mobile.h
+@@ -238,7 +238,7 @@ public:
+ 		DepthDraw depth_draw;
+ 		DepthTest depth_test;
+ 
+-		int blend_mode = BLEND_MODE_MIX;
++		StringName blend_mode;
+ 		int depth_test_disabledi = 0;
+ 		int depth_test_invertedi = 0;
+ 		int alpha_antialiasing_mode = ALPHA_ANTIALIASING_OFF;
+diff --git a/servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp b/servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp
+index fad67ae1a3..a4e9774102 100644
+--- a/servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp
++++ b/servers/rendering/renderer_rd/renderer_canvas_render_rd.cpp
+@@ -1499,22 +1499,16 @@ void RendererCanvasRenderRD::CanvasShaderData::_create_pipeline(PipelineKey p_pi
+ 			"SPEC PACKED #0:", p_pipeline_key.shader_specialization.packed_0,
+ 			"LCD:", p_pipeline_key.lcd_blend);
+ #endif
+-
+-	RendererRD::MaterialStorage::ShaderData::BlendMode blend_mode_rd = RendererRD::MaterialStorage::ShaderData::BlendMode(blend_mode);
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
++	StringName blend_mode_rd = blend_mode;
+ 	RD::PipelineColorBlendState blend_state;
+ 	RD::PipelineColorBlendState::Attachment attachment;
+ 	uint32_t dynamic_state_flags = 0;
+ 	if (p_pipeline_key.lcd_blend) {
+-		attachment.enable_blend = true;
+-		attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-		attachment.color_blend_op = RD::BLEND_OP_ADD;
+-		attachment.src_color_blend_factor = RD::BLEND_FACTOR_CONSTANT_COLOR;
+-		attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+-		attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-		attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
++		attachment = material_storage->get_blend_attachment(RSE::SHADER_CANVAS_ITEM, RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_LCD));
+ 		dynamic_state_flags = RD::DYNAMIC_STATE_BLEND_CONSTANTS;
+ 	} else {
+-		attachment = RendererRD::MaterialStorage::ShaderData::blend_mode_to_blend_attachment(blend_mode_rd);
++		attachment = material_storage->get_blend_attachment(RSE::SHADER_CANVAS_ITEM, blend_mode_rd);
+ 	}
+ 
+ 	blend_state.attachments.push_back(attachment);
+@@ -1540,6 +1534,7 @@ void RendererCanvasRenderRD::CanvasShaderData::_create_pipeline(PipelineKey p_pi
+ }
+ 
+ void RendererCanvasRenderRD::CanvasShaderData::set_code(const String &p_code) {
++	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
+ 	//compile
+ 
+ 	code = p_code;
+@@ -1557,19 +1552,19 @@ void RendererCanvasRenderRD::CanvasShaderData::set_code(const String &p_code) {
+ 
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+-	blend_mode = BLEND_MODE_MIX;
+-
+ 	ShaderCompiler::IdentifierActions actions;
+ 	actions.entry_point_stages["vertex"] = ShaderCompiler::STAGE_VERTEX;
+ 	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+ 	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_mode, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_mode, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_premul_alpha"] = Pair<int *, int>(&blend_mode, BLEND_MODE_PREMULTIPLIED_ALPHA);
+-	actions.render_mode_values["blend_disabled"] = Pair<int *, int>(&blend_mode, BLEND_MODE_DISABLED);
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
++
++	int blend_modei = -1;
++	auto modes = material_storage->get_blend_modes(RSE::SHADER_CANVAS_ITEM);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.usage_flag_pointers["texture_sdf"] = &uses_sdf;
+ 	actions.usage_flag_pointers["texture_sdf_normal"] = &uses_sdf;
+@@ -1589,6 +1584,10 @@ void RendererCanvasRenderRD::CanvasShaderData::set_code(const String &p_code) {
+ 		ERR_FAIL_MSG("Shader compilation failed.");
+ 	}
+ 
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
++
+ 	uses_screen_texture_mipmaps = gen_code.uses_screen_texture_mipmaps;
+ 	uses_screen_texture = gen_code.uses_screen_texture;
+ 
+@@ -1762,7 +1761,7 @@ RendererCanvasRenderRD::RendererCanvasRenderRD() {
+ 
+ 		shader.default_version_data = memnew(CanvasShaderData);
+ 		shader.default_version_data->version = shader.canvas_shader.version_create();
+-		shader.default_version_data->blend_mode = RendererRD::MaterialStorage::ShaderData::BLEND_MODE_MIX;
++		shader.default_version_data->blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_MIX);
+ 		shader.default_version_rd_shader = shader.default_version_data->get_shader(SHADER_VARIANT_QUAD, false);
+ 	}
+ 
+diff --git a/servers/rendering/renderer_rd/renderer_canvas_render_rd.h b/servers/rendering/renderer_rd/renderer_canvas_render_rd.h
+index dbdddafe62..2505208028 100644
+--- a/servers/rendering/renderer_rd/renderer_canvas_render_rd.h
++++ b/servers/rendering/renderer_rd/renderer_canvas_render_rd.h
+@@ -148,7 +148,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
+ 
+ 	struct CanvasShaderData : public RendererRD::MaterialStorage::ShaderData {
+ 		Vector<ShaderCompiler::GeneratedCode::Texture> texture_uniforms;
+-		int blend_mode = 0;
++		StringName blend_mode;
+ 
+ 		Vector<uint32_t> ubo_offsets;
+ 		uint32_t ubo_size = 0;
+diff --git a/servers/rendering/renderer_rd/storage_rd/material_storage.cpp b/servers/rendering/renderer_rd/storage_rd/material_storage.cpp
+index d4906c944d..43b68a0f1b 100644
+--- a/servers/rendering/renderer_rd/storage_rd/material_storage.cpp
++++ b/servers/rendering/renderer_rd/storage_rd/material_storage.cpp
+@@ -648,93 +648,6 @@ bool MaterialStorage::ShaderData::is_parameter_texture(const StringName &p_param
+ 	return uniforms[p_param].is_texture();
+ }
+ 
+-RD::PipelineColorBlendState::Attachment MaterialStorage::ShaderData::blend_mode_to_blend_attachment(BlendMode p_mode) {
+-	RD::PipelineColorBlendState::Attachment attachment;
+-
+-	switch (p_mode) {
+-		case BLEND_MODE_MIX: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-		} break;
+-		case BLEND_MODE_ADD: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-		} break;
+-		case BLEND_MODE_SUB: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_REVERSE_SUBTRACT;
+-			attachment.color_blend_op = RD::BLEND_OP_REVERSE_SUBTRACT;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-		} break;
+-		case BLEND_MODE_MUL: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_DST_COLOR;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ZERO;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_DST_ALPHA;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ZERO;
+-		} break;
+-		case BLEND_MODE_ALPHA_TO_COVERAGE: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ZERO;
+-		} break;
+-		case BLEND_MODE_PREMULTIPLIED_ALPHA: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-		} break;
+-		case BLEND_MODE_DISABLED:
+-		default: {
+-			// Use default attachment values.
+-		} break;
+-	}
+-
+-	return attachment;
+-}
+-
+-bool MaterialStorage::ShaderData::blend_mode_uses_blend_alpha(BlendMode p_mode) {
+-	switch (p_mode) {
+-		case BLEND_MODE_MIX:
+-			return false;
+-		case BLEND_MODE_ADD:
+-			return true;
+-		case BLEND_MODE_SUB:
+-			return true;
+-		case BLEND_MODE_MUL:
+-			return true;
+-		case BLEND_MODE_ALPHA_TO_COVERAGE:
+-			return false;
+-		case BLEND_MODE_PREMULTIPLIED_ALPHA:
+-			return true;
+-		case BLEND_MODE_DISABLED:
+-		default:
+-			return false;
+-	}
+-}
+-
+ ///////////////////////////////////////////////////////////////////////////
+ // MaterialStorage::MaterialData
+ 
+@@ -1258,6 +1171,7 @@ void MaterialStorage::MaterialData::set_as_used() {
+ 
+ void MaterialStorage::TexBlitShaderData::set_code(const String &p_code) {
+ 	TextureStorage *texture_storage = TextureStorage::get_singleton();
++	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+ 	// Initialize and compile the shader.
+ 
+ 	code = p_code;
+@@ -1272,16 +1186,17 @@ void MaterialStorage::TexBlitShaderData::set_code(const String &p_code) {
+ 	ShaderCompiler::GeneratedCode gen_code;
+ 
+ 	// Actual enum set further down after compilation.
+-	int blend_modei = BLEND_MODE_DISABLED;
++	blend_mode = RenderingServerTypes::blend_mode_name(RSE::BLEND_MODE_DISABLED);
+ 
+ 	ShaderCompiler::IdentifierActions actions;
+ 	actions.entry_point_stages["blit"] = ShaderCompiler::STAGE_FRAGMENT;
+ 
+-	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_modei, BLEND_MODE_ADD);
+-	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MIX);
+-	actions.render_mode_values["blend_sub"] = Pair<int *, int>(&blend_modei, BLEND_MODE_SUB);
+-	actions.render_mode_values["blend_mul"] = Pair<int *, int>(&blend_modei, BLEND_MODE_MUL);
+-	actions.render_mode_values["blend_disabled"] = Pair<int *, int>(&blend_modei, BLEND_MODE_DISABLED);
++	int blend_modei = -1;
++	auto modes = material_storage->get_blend_modes(RSE::SHADER_TEXTURE_BLIT);
++	for (int i = 0; i < modes.size(); i++) {
++		StringName name = modes[i];
++		actions.render_mode_values[name] = Pair<int *, int>(&blend_modei, i);
++	}
+ 
+ 	actions.uniforms = &uniforms;
+ 	Error err = texture_storage->tex_blit_shader.compiler.compile(RSE::SHADER_TEXTURE_BLIT, code, &actions, path, gen_code);
+@@ -1291,7 +1206,9 @@ void MaterialStorage::TexBlitShaderData::set_code(const String &p_code) {
+ 		version = texture_storage->tex_blit_shader.shader.version_create();
+ 	}
+ 
+-	blend_mode = BlendMode(blend_modei);
++	if (blend_modei >= 0) {
++		blend_mode = modes[blend_modei];
++	}
+ 
+ #if 0
+ 	print_line("**compiling shader:");
+@@ -1319,52 +1236,7 @@ void MaterialStorage::TexBlitShaderData::set_code(const String &p_code) {
+ 	texture_uniforms = gen_code.texture_uniforms;
+ 
+ 	RD::PipelineColorBlendState blend_state_color_blend;
+-	RD::PipelineColorBlendState::Attachment attachment;
+-
+-	// blend_mode_to_blend_attachment(blend_mode) does not work
+-	// Because we want BlendAdd and BlendSub to behave differently for Texture_Blit
+-	switch (blend_mode) {
+-		case BLEND_MODE_MIX: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+-		} break;
+-		case BLEND_MODE_ADD: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-		} break;
+-		case BLEND_MODE_SUB: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_REVERSE_SUBTRACT;
+-			attachment.color_blend_op = RD::BLEND_OP_REVERSE_SUBTRACT;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE;
+-		} break;
+-		case BLEND_MODE_MUL: {
+-			attachment.enable_blend = true;
+-			attachment.alpha_blend_op = RD::BLEND_OP_ADD;
+-			attachment.color_blend_op = RD::BLEND_OP_ADD;
+-			attachment.src_color_blend_factor = RD::BLEND_FACTOR_DST_COLOR;
+-			attachment.dst_color_blend_factor = RD::BLEND_FACTOR_ZERO;
+-			attachment.src_alpha_blend_factor = RD::BLEND_FACTOR_DST_ALPHA;
+-			attachment.dst_alpha_blend_factor = RD::BLEND_FACTOR_ZERO;
+-		} break;
+-		case BLEND_MODE_DISABLED:
+-		default: {
+-			// Use default attachment values.
+-		} break;
+-	}
++	RD::PipelineColorBlendState::Attachment attachment = material_storage->get_blend_attachment(RSE::SHADER_TEXTURE_BLIT, blend_mode, false);
+ 
+ 	blend_state_color_blend.attachments = { attachment, attachment, attachment, attachment };
+ 
+@@ -1505,6 +1377,212 @@ MaterialStorage::MaterialStorage() {
+ 	global_shader_uniforms.buffer_dirty_regions = memnew_arr(bool, 1 + (global_shader_uniforms.buffer_size / GlobalShaderUniforms::BUFFER_DIRTY_REGION_SIZE));
+ 	memset(global_shader_uniforms.buffer_dirty_regions, 0, sizeof(bool) * (1 + (global_shader_uniforms.buffer_size / GlobalShaderUniforms::BUFFER_DIRTY_REGION_SIZE)));
+ 	global_shader_uniforms.buffer = RD::get_singleton()->storage_buffer_create(sizeof(GlobalShaderUniforms::Value) * global_shader_uniforms.buffer_size);
++
++	// Default Render Modes
++	{
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT,
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_DST_COLOR,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_DST_ALPHA,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_ALPHA_TO_COVERAGE,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD),
++				false);
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_PREMULTIPLIED_ALPHA,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_LCD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_CONSTANT_COLOR,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD),
++				false);
++		register_blend_mode(
++				RSE::SHADER_CANVAS_ITEM,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
++
++	{
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT,
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_DST_COLOR,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_DST_ALPHA,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_ALPHA_TO_COVERAGE,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD),
++				false);
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_PREMULTIPLIED_ALPHA,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_LCD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_CONSTANT_COLOR,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD),
++				false);
++		register_blend_mode(
++				RSE::SHADER_SPATIAL,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
++
++	{
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_MIX,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_SRC_ALPHA,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_ADD,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_SUB,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_FACTOR_ONE,
++						RD::BLEND_OP_REVERSE_SUBTRACT));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_MUL,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment(
++						RD::BLEND_FACTOR_DST_COLOR,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD,
++						RD::BLEND_FACTOR_DST_ALPHA,
++						RD::BLEND_FACTOR_ZERO,
++						RD::BLEND_OP_ADD));
++		register_blend_mode(
++				RSE::SHADER_TEXTURE_BLIT,
++				RSE::BLEND_MODE_DISABLED,
++				RenderingDeviceCommons::PipelineColorBlendState::Attachment());
++	}
+ }
+ 
+ MaterialStorage::~MaterialStorage() {
+diff --git a/servers/rendering/renderer_rd/storage_rd/material_storage.h b/servers/rendering/renderer_rd/storage_rd/material_storage.h
+index 46c7352aff..c9baf5ce5e 100644
+--- a/servers/rendering/renderer_rd/storage_rd/material_storage.h
++++ b/servers/rendering/renderer_rd/storage_rd/material_storage.h
+@@ -57,16 +57,6 @@ public:
+ 	};
+ 
+ 	struct ShaderData {
+-		enum BlendMode {
+-			BLEND_MODE_MIX,
+-			BLEND_MODE_ADD,
+-			BLEND_MODE_SUB,
+-			BLEND_MODE_MUL,
+-			BLEND_MODE_ALPHA_TO_COVERAGE,
+-			BLEND_MODE_PREMULTIPLIED_ALPHA,
+-			BLEND_MODE_DISABLED
+-		};
+-
+ 		String path;
+ 		HashMap<StringName, ShaderLanguage::ShaderNode::Uniform> uniforms;
+ 		HashMap<StringName, HashMap<int, RID>> default_texture_params;
+@@ -85,9 +75,6 @@ public:
+ 		virtual Pair<ShaderRD *, RID> get_native_shader_and_version() const = 0;
+ 
+ 		virtual ~ShaderData() {}
+-
+-		static RD::PipelineColorBlendState::Attachment blend_mode_to_blend_attachment(BlendMode p_mode);
+-		static bool blend_mode_uses_blend_alpha(BlendMode p_mode);
+ 	};
+ 
+ 	struct MaterialData {
+@@ -151,7 +138,7 @@ public:
+ 
+ 		String code;
+ 
+-		BlendMode blend_mode;
++		StringName blend_mode;
+ 
+ 		virtual void set_code(const String &p_Code);
+ 		virtual bool is_animated() const;
+diff --git a/servers/rendering/rendering_device_binds.h b/servers/rendering/rendering_device_binds.h
+index 7a9d5bc449..489fc7f223 100644
+--- a/servers/rendering/rendering_device_binds.h
++++ b/servers/rendering/rendering_device_binds.h
+@@ -686,6 +686,8 @@ public:
+ 	RD_SETGET(bool, write_g)
+ 	RD_SETGET(bool, write_b)
+ 	RD_SETGET(bool, write_a)
++	RD_SETGET(bool, uses_blend_alpha)
++	RD_SETGET(bool, uses_blend_color)
+ 
+ 	void set_as_mix() {
+ 		base = RD::PipelineColorBlendState::Attachment();
+@@ -694,6 +696,12 @@ public:
+ 		base.dst_color_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+ 		base.src_alpha_blend_factor = RD::BLEND_FACTOR_SRC_ALPHA;
+ 		base.dst_alpha_blend_factor = RD::BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
++		base.uses_blend_alpha = false;
++		base.uses_blend_color = false;
++	}
++
++	RD::PipelineColorBlendState::Attachment get_base() {
++		return base;
+ 	}
+ 
+ protected:
+@@ -711,6 +719,8 @@ protected:
+ 		RD_BIND(Variant::BOOL, RDPipelineColorBlendStateAttachment, write_g);
+ 		RD_BIND(Variant::BOOL, RDPipelineColorBlendStateAttachment, write_b);
+ 		RD_BIND(Variant::BOOL, RDPipelineColorBlendStateAttachment, write_a);
++		RD_BIND(Variant::BOOL, RDPipelineColorBlendStateAttachment, uses_blend_alpha);
++		RD_BIND(Variant::BOOL, RDPipelineColorBlendStateAttachment, uses_blend_color);
+ 	}
+ };
+ 
+diff --git a/servers/rendering/rendering_device_commons.h b/servers/rendering/rendering_device_commons.h
+index fd7b65b246..0a8e1b4dce 100644
+--- a/servers/rendering/rendering_device_commons.h
++++ b/servers/rendering/rendering_device_commons.h
+@@ -793,7 +793,8 @@ public:
+ 		BLEND_FACTOR_ONE_MINUS_SRC1_COLOR,
+ 		BLEND_FACTOR_SRC1_ALPHA,
+ 		BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA,
+-		BLEND_FACTOR_MAX
++		BLEND_FACTOR_MAX,
++		BLEND_FACTOR_MIN
+ 	};
+ 
+ 	enum BlendOperation {
+@@ -867,6 +868,24 @@ public:
+ 			bool write_g = true;
+ 			bool write_b = true;
+ 			bool write_a = true;
++			bool uses_blend_alpha = false;
++			bool uses_blend_color = false;
++
++			Attachment() {}
++
++			Attachment(
++					BlendFactor p_src_color_blend_factor, BlendFactor p_dst_color_blend_factor, BlendOperation p_color_blend_op,
++					BlendFactor p_src_alpha_blend_factor, BlendFactor p_dst_alpha_blend_factor, BlendOperation p_alpha_blend_op,
++					bool p_uses_blend_color = false, bool p_uses_blend_alpha = false) :
++					enable_blend(true),
++					src_color_blend_factor(p_src_color_blend_factor),
++					dst_color_blend_factor(p_dst_color_blend_factor),
++					color_blend_op(p_color_blend_op),
++					src_alpha_blend_factor(p_src_alpha_blend_factor),
++					dst_alpha_blend_factor(p_dst_alpha_blend_factor),
++					alpha_blend_op(p_alpha_blend_op),
++					uses_blend_alpha(p_uses_blend_alpha),
++					uses_blend_color(p_uses_blend_color) {}
+ 		};
+ 
+ 		static PipelineColorBlendState create_disabled(int p_attachments = 1) {
+diff --git a/servers/rendering/rendering_server.cpp b/servers/rendering/rendering_server.cpp
+index d2b235f8e3..4f21c581ff 100644
+--- a/servers/rendering/rendering_server.cpp
++++ b/servers/rendering/rendering_server.cpp
+@@ -2319,6 +2319,11 @@ void RenderingServer::_bind_methods() {
+ 	BIND_ENUM_CONSTANT(RSE::TEXTURE_DRAWABLE_FORMAT_RGBAH);
+ 	BIND_ENUM_CONSTANT(RSE::TEXTURE_DRAWABLE_FORMAT_RGBAF);
+ 
++	/* BLEND REGISTRY */
++
++	ClassDB::bind_method(D_METHOD("register_blend_mode", "shader_type", "name", "attachment", "transparent_attachment"), &RenderingServer::register_blend_mode, DEFVAL(Variant()));
++	ClassDB::bind_method(D_METHOD("unregister_blend_mode", "shader_type", "name"), &RenderingServer::unregister_blend_mode);
++
+ 	/* SHADER */
+ 
+ 	ClassDB::bind_method(D_METHOD("shader_create"), &RenderingServer::shader_create);
+diff --git a/servers/rendering/rendering_server.h b/servers/rendering/rendering_server.h
+index 4a5f852bcd..40a21d6a8d 100644
+--- a/servers/rendering/rendering_server.h
++++ b/servers/rendering/rendering_server.h
+@@ -35,6 +35,7 @@
+ #include "core/variant/typed_array.h"
+ #include "core/variant/variant.h"
+ #include "servers/display/display_server_enums.h"
++#include "servers/rendering/rendering_device_binds.h"
+ #include "servers/rendering/rendering_device_enums.h"
+ #include "servers/rendering/rendering_server_enums.h"
+ #include "servers/rendering/rendering_server_types.h"
+@@ -172,6 +173,11 @@ public:
+ 
+ 	virtual RenderingServerTypes::ShaderNativeSourceCode shader_get_native_source_code(RID p_shader) const = 0;
+ 
++	/* BLEND REGISTRY API */
++
++	virtual void register_blend_mode(RSE::ShaderMode p_mode, const StringName blend_mode, RDPipelineColorBlendStateAttachment *attachment, RDPipelineColorBlendStateAttachment *transparent_attachment = nullptr) = 0;
++	virtual void unregister_blend_mode(RSE::ShaderMode p_mode, const StringName blend_mode) = 0;
++
+ 	/* COMMON MATERIAL API */
+ 
+ 	virtual RID material_create() = 0;
+diff --git a/servers/rendering/rendering_server_default.h b/servers/rendering/rendering_server_default.h
+index 9bc71818ed..d02d49605d 100644
+--- a/servers/rendering/rendering_server_default.h
++++ b/servers/rendering/rendering_server_default.h
+@@ -267,13 +267,30 @@ public:
+ 	FUNC2RC(RID, texture_get_rd_texture, RID, bool)
+ 	FUNC2RC(uint64_t, texture_get_native_handle, RID, bool)
+ 
+-	/* SHADER API */
+-
+ #undef ServerName
+ #undef server_name
+ 
+ #define ServerName RendererMaterialStorage
+ #define server_name RSG::material_storage
++	/* BLEND REGISTRY */
++
++	void register_blend_mode(RSE::ShaderMode p_mode, const StringName blend_mode, RDPipelineColorBlendStateAttachment *attachment, RDPipelineColorBlendStateAttachment *transparent_attachment) override {
++		ERR_FAIL_COND_MSG(RenderingServerTypes::is_predefined_blend_mode(blend_mode), "Can not override predefined blend mode");
++
++		RSG::material_storage->register_blend_mode(
++				p_mode,
++				blend_mode,
++				attachment->get_base(),
++				(transparent_attachment == nullptr) ? attachment->get_base() : transparent_attachment->get_base());
++	}
++
++	void unregister_blend_mode(RSE::ShaderMode p_mode, const StringName blend_mode) override {
++		ERR_FAIL_COND_MSG(RenderingServerTypes::is_predefined_blend_mode(blend_mode), "Can not remove predefined blend mode");
++
++		RSG::material_storage->unregister_blend_mode(p_mode, blend_mode);
++	}
++
++	/* SHADER API */
+ 
+ 	virtual RID shader_create() override {
+ 		RID ret = RSG::material_storage->shader_allocate();
+diff --git a/servers/rendering/rendering_server_enums.h b/servers/rendering/rendering_server_enums.h
+index 47d4dbf235..2de21d1885 100644
+--- a/servers/rendering/rendering_server_enums.h
++++ b/servers/rendering/rendering_server_enums.h
+@@ -929,6 +929,21 @@ enum SplashStretchMode {
+ 	SPLASH_STRETCH_MODE_IGNORE,
+ };
+ 
++/* BLENDING */
++// predefined supported blend modes
++enum BlendMode {
++	BLEND_MODE_MIX,
++	BLEND_MODE_ADD,
++	BLEND_MODE_SUB,
++	BLEND_MODE_MUL,
++	BLEND_MODE_PREMULTIPLIED_ALPHA,
++	BLEND_MODE_DISABLED,
++
++	// internal only
++	BLEND_MODE_LCD,
++	BLEND_MODE_ALPHA_TO_COVERAGE
++};
++
+ /* MISC */
+ 
+ #ifndef DISABLE_DEPRECATED
+diff --git a/servers/rendering/rendering_server_types.h b/servers/rendering/rendering_server_types.h
+index 8dab2c28d1..86423255dd 100644
+--- a/servers/rendering/rendering_server_types.h
++++ b/servers/rendering/rendering_server_types.h
+@@ -220,4 +220,38 @@ struct RenderInfo {
+ 	int info[RSE::VIEWPORT_RENDER_INFO_TYPE_MAX][RSE::VIEWPORT_RENDER_INFO_MAX] = {};
+ };
+ 
++/* BLENDING METHOD */
++
++inline bool is_predefined_blend_mode(const StringName p_mode) {
++	return p_mode == "mix" || p_mode == "add" || p_mode == "sub" || p_mode == "mul" || p_mode == "premul_alpha" || p_mode == "lcd" || p_mode == "alpha_to_coverage" || p_mode == "disabled";
++}
++
++inline String blend_mode_to_string(RSE::BlendMode p_mode) {
++	switch (p_mode) {
++		case RSE::BLEND_MODE_MIX:
++			return "mix";
++		case RSE::BLEND_MODE_ADD:
++			return "add";
++		case RSE::BLEND_MODE_SUB:
++			return "sub";
++		case RSE::BLEND_MODE_MUL:
++			return "mul";
++		case RSE::BLEND_MODE_PREMULTIPLIED_ALPHA:
++			return "premul_alpha";
++		case RSE::BLEND_MODE_LCD:
++			return "lcd";
++		case RSE::BLEND_MODE_ALPHA_TO_COVERAGE:
++			return "alpha_to_coverage";
++		case RSE::BLEND_MODE_DISABLED:
++			return "disabled";
++		default:
++			break;
++	}
++	return "mix";
++}
++
++inline StringName blend_mode_name(RSE::BlendMode p_mode) {
++	return "blend_" + blend_mode_to_string(p_mode);
++}
++
+ } // namespace RenderingServerTypes
+diff --git a/servers/rendering/shader_language.h b/servers/rendering/shader_language.h
+index 36ffde7ca4..0addbe9e07 100644
+--- a/servers/rendering/shader_language.h
++++ b/servers/rendering/shader_language.h
+@@ -36,6 +36,7 @@
+ #include "core/templates/list.h"
+ #include "core/templates/rb_map.h"
+ #include "core/templates/safe_refcount.h"
++#include "core/templates/vset.h"
+ #include "core/typedefs.h"
+ #include "core/variant/variant.h"
+ 
+@@ -900,7 +901,7 @@ public:
+ 
+ 	struct ModeInfo {
+ 		StringName name;
+-		Vector<StringName> options;
++		VSet<StringName> options;
+ 
+ 		ModeInfo() {}
+ 
+@@ -910,48 +911,48 @@ public:
+ 
+ 		ModeInfo(const StringName &p_name, const StringName &p_arg1, const StringName &p_arg2) :
+ 				name(p_name) {
+-			options.push_back(p_arg1);
+-			options.push_back(p_arg2);
++			options.insert(p_arg1);
++			options.insert(p_arg2);
+ 		}
+ 
+ 		ModeInfo(const StringName &p_name, const StringName &p_arg1, const StringName &p_arg2, const StringName &p_arg3) :
+ 				name(p_name) {
+-			options.push_back(p_arg1);
+-			options.push_back(p_arg2);
+-			options.push_back(p_arg3);
++			options.insert(p_arg1);
++			options.insert(p_arg2);
++			options.insert(p_arg3);
+ 		}
+ 
+ 		ModeInfo(const StringName &p_name, const StringName &p_arg1, const StringName &p_arg2, const StringName &p_arg3, const StringName &p_arg4) :
+ 				name(p_name) {
+-			options.push_back(p_arg1);
+-			options.push_back(p_arg2);
+-			options.push_back(p_arg3);
+-			options.push_back(p_arg4);
++			options.insert(p_arg1);
++			options.insert(p_arg2);
++			options.insert(p_arg3);
++			options.insert(p_arg4);
+ 		}
+ 
+ 		ModeInfo(const StringName &p_name, const StringName &p_arg1, const StringName &p_arg2, const StringName &p_arg3, const StringName &p_arg4, const StringName &p_arg5) :
+ 				name(p_name) {
+-			options.push_back(p_arg1);
+-			options.push_back(p_arg2);
+-			options.push_back(p_arg3);
+-			options.push_back(p_arg4);
+-			options.push_back(p_arg5);
++			options.insert(p_arg1);
++			options.insert(p_arg2);
++			options.insert(p_arg3);
++			options.insert(p_arg4);
++			options.insert(p_arg5);
+ 		}
+ 
+ 		ModeInfo(const StringName &p_name, const StringName &p_arg1, const StringName &p_arg2, const StringName &p_arg3, const StringName &p_arg4, const StringName &p_arg5, const StringName &p_arg6) :
+ 				name(p_name) {
+-			options.push_back(p_arg1);
+-			options.push_back(p_arg2);
+-			options.push_back(p_arg3);
+-			options.push_back(p_arg4);
+-			options.push_back(p_arg5);
+-			options.push_back(p_arg6);
++			options.insert(p_arg1);
++			options.insert(p_arg2);
++			options.insert(p_arg3);
++			options.insert(p_arg4);
++			options.insert(p_arg5);
++			options.insert(p_arg6);
+ 		}
+ 
+ 		ModeInfo(const StringName &p_name, std::initializer_list<StringName> p_args) :
+ 				name(p_name) {
+ 			for (const StringName &arg : p_args) {
+-				options.push_back(arg);
++				options.insert(arg);
+ 			}
+ 		}
+ 	};
+diff --git a/servers/rendering/shader_types.cpp b/servers/rendering/shader_types.cpp
+index b733b6b767..0367ce86ec 100644
+--- a/servers/rendering/shader_types.cpp
++++ b/servers/rendering/shader_types.cpp
+@@ -64,6 +64,24 @@ static ShaderLanguage::BuiltInInfo constvt(ShaderLanguage::DataType p_type, cons
+ 	return ShaderLanguage::BuiltInInfo(p_type, true, p_values);
+ }
+ 
++void ShaderTypes::add_blend_mode(RSE::ShaderMode p_mode, StringName p_blend) {
++	for (ShaderLanguage::ModeInfo &info : shader_modes[p_mode].modes) {
++		if (info.name == "blend") {
++			info.options.insert(p_blend);
++			break;
++		}
++	}
++}
++
++void ShaderTypes::remove_blend_mode(RSE::ShaderMode p_mode, StringName p_blend) {
++	for (ShaderLanguage::ModeInfo &info : shader_modes[p_mode].modes) {
++		if (info.name == "blend") {
++			info.options.erase(p_blend);
++			break;
++		}
++	}
++}
++
+ ShaderTypes::ShaderTypes() {
+ 	singleton = this;
+ 
+diff --git a/servers/rendering/shader_types.h b/servers/rendering/shader_types.h
+index d3fd1241cd..0026c8e667 100644
+--- a/servers/rendering/shader_types.h
++++ b/servers/rendering/shader_types.h
+@@ -56,5 +56,8 @@ public:
+ 	const HashSet<String> &get_types() const;
+ 	const List<String> &get_types_list() const;
+ 
++	void add_blend_mode(RSE::ShaderMode p_mode, StringName p_blend);
++	void remove_blend_mode(RSE::ShaderMode p_mode, StringName p_blend);
++
+ 	ShaderTypes();
+ };
+diff --git a/servers/rendering/storage/material_storage.cpp b/servers/rendering/storage/material_storage.cpp
+new file mode 100644
+index 0000000000..4d8c2b7f89
+--- /dev/null
++++ b/servers/rendering/storage/material_storage.cpp
+@@ -0,0 +1,107 @@
++/**************************************************************************/
++/*  material_storage.cpp                                                  */
++/**************************************************************************/
++/*                         This file is part of:                          */
++/*                             GODOT ENGINE                               */
++/*                        https://godotengine.org                         */
++/**************************************************************************/
++/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
++/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
++/*                                                                        */
++/* Permission is hereby granted, free of charge, to any person obtaining  */
++/* a copy of this software and associated documentation files (the        */
++/* "Software"), to deal in the Software without restriction, including    */
++/* without limitation the rights to use, copy, modify, merge, publish,    */
++/* distribute, sublicense, and/or sell copies of the Software, and to     */
++/* permit persons to whom the Software is furnished to do so, subject to  */
++/* the following conditions:                                              */
++/*                                                                        */
++/* The above copyright notice and this permission notice shall be         */
++/* included in all copies or substantial portions of the Software.        */
++/*                                                                        */
++/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
++/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
++/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
++/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
++/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
++/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
++/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
++/**************************************************************************/
++
++#include "material_storage.h"
++
++HashMap<StringName, RendererMaterialStorage::BlendData> *RendererMaterialStorage::BlendRegistry::get(const RSE::ShaderMode &p_key) {
++	switch (p_key) {
++		case RSE::SHADER_CANVAS_ITEM:
++			return &canvas_blend_mode;
++		case RSE::SHADER_SPATIAL:
++			return &spatial_blend_mode;
++		case RSE::SHADER_TEXTURE_BLIT:
++			return &texture_blit_blend_mode;
++		default:
++			return nullptr;
++	}
++}
++
++void RendererMaterialStorage::register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, RendererMaterialStorage::BlendData p_data, const bool p_shader_enabled) {
++	StringName blend_name = "blend_" + String(p_name);
++	auto modes = blend_mode_registry.get(p_mode);
++	ERR_FAIL_COND_MSG(modes == nullptr, "registry only contains blend modes for shader types canvas_item, spatial, and texture blit.");
++
++	modes->insert(blend_name, p_data);
++
++	if (p_shader_enabled) {
++		ShaderTypes::get_singleton()->add_blend_mode(p_mode, p_name);
++	}
++}
++
++void RendererMaterialStorage::register_blend_mode(const RSE::ShaderMode p_mode, RSE::BlendMode p_blend_mode, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_transparent_attachment, const bool p_shader_enabled) {
++	register_blend_mode(p_mode, RenderingServerTypes::blend_mode_to_string(p_blend_mode), BlendData(p_attachment, p_transparent_attachment), p_shader_enabled);
++}
++void RendererMaterialStorage::register_blend_mode(const RSE::ShaderMode p_mode, RSE::BlendMode p_blend_mode, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, const bool p_shader_enabled) {
++	register_blend_mode(p_mode, RenderingServerTypes::blend_mode_to_string(p_blend_mode), BlendData(p_attachment), p_shader_enabled);
++}
++void RendererMaterialStorage::register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_transparent_attachment) {
++	register_blend_mode(p_mode, p_name, BlendData(p_attachment, p_transparent_attachment), true);
++}
++
++void RendererMaterialStorage::register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment) {
++	register_blend_mode(p_mode, p_name, BlendData(p_attachment), true);
++}
++
++void RendererMaterialStorage::unregister_blend_mode(const RSE::ShaderMode p_mode, StringName p_name) {
++	StringName blend_name = "blend_" + String(p_name);
++	auto modes = blend_mode_registry.get(p_mode);
++	ERR_FAIL_COND_MSG(modes == nullptr, "registry only contains blend modes for shader types canvas_item, spatial, and texture blit.");
++
++	modes->erase(blend_name);
++
++	ShaderTypes::get_singleton()->remove_blend_mode(p_mode, p_name);
++}
++
++Vector<StringName> RendererMaterialStorage::get_blend_modes(const RSE::ShaderMode p_mode) {
++	Vector<StringName> modes;
++	auto el = blend_mode_registry.get(p_mode)->begin();
++	while (el) {
++		modes.append(el->key);
++		++el;
++	}
++	return modes;
++}
++
++RenderingDeviceCommons::PipelineColorBlendState::Attachment RendererMaterialStorage::get_blend_attachment(const RSE::ShaderMode p_mode, StringName p_blend_mode, bool p_transparent) {
++	auto attachments = blend_mode_registry.get(p_mode);
++	RenderingDeviceCommons::PipelineColorBlendState::Attachment attachment;
++
++	if (attachments->has(p_blend_mode)) {
++		RendererMaterialStorage::BlendData *blend = attachments->getptr(p_blend_mode);
++		if (p_transparent) {
++			attachment = blend->transparent_attachment;
++		} else {
++			attachment = blend->attachment;
++		}
++	} else {
++		print_line("unrecognized blend mode", p_mode, p_blend_mode);
++	}
++	return attachment;
++}
+diff --git a/servers/rendering/storage/material_storage.h b/servers/rendering/storage/material_storage.h
+index 2c30cade41..72ffaf605e 100644
+--- a/servers/rendering/storage/material_storage.h
++++ b/servers/rendering/storage/material_storage.h
+@@ -30,8 +30,10 @@
+ 
+ #pragma once
+ 
++#include "servers/rendering/rendering_device_commons.h"
+ #include "servers/rendering/rendering_server_enums.h"
+ #include "servers/rendering/rendering_server_types.h"
++#include "servers/rendering/shader_types.h"
+ #include "servers/rendering/storage/utilities.h"
+ 
+ class RendererMaterialStorage {
+@@ -101,4 +103,44 @@ public:
+ 	virtual void material_get_instance_shader_parameters(RID p_material, List<InstanceShaderParam> *r_parameters) = 0;
+ 
+ 	virtual void material_update_dependency(RID p_material, DependencyTracker *p_instance) = 0;
++
++	/* BLENDING */
++
++	struct BlendData {
++		RenderingDeviceCommons::PipelineColorBlendState::Attachment attachment;
++		RenderingDeviceCommons::PipelineColorBlendState::Attachment transparent_attachment;
++
++		BlendData(RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment) :
++				attachment(p_attachment), transparent_attachment(p_attachment) {}
++
++		BlendData(RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_transparent) :
++				attachment(p_attachment), transparent_attachment(p_transparent) {}
++	};
++
++	struct BlendRegistry {
++		HashMap<StringName, BlendData> canvas_blend_mode;
++		HashMap<StringName, BlendData> spatial_blend_mode;
++		HashMap<StringName, BlendData> texture_blit_blend_mode;
++
++		HashMap<StringName, BlendData> *get(const RSE::ShaderMode &p_key);
++	};
++
++	void
++	register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, BlendData p_data, const bool p_shader_enabled = true);
++
++	void
++	register_blend_mode(const RSE::ShaderMode p_mode, RSE::BlendMode p_blend_mode, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_transparent_attachment, const bool p_shader_enabled = true);
++	void
++	register_blend_mode(const RSE::ShaderMode p_mode, RSE::BlendMode p_blend_mode, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, const bool p_shader_enabled = true);
++	void register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_transparent_attachment);
++	void register_blend_mode(const RSE::ShaderMode p_mode, StringName p_name, RenderingDeviceCommons::PipelineColorBlendState::Attachment p_attachment);
++
++	void unregister_blend_mode(const RSE::ShaderMode p_mode, StringName p_name);
++
++	Vector<StringName> get_blend_modes(const RSE::ShaderMode p_mode);
++
++	RenderingDeviceCommons::PipelineColorBlendState::Attachment get_blend_attachment(const RSE::ShaderMode p_mode, StringName p_blend_mode, bool p_transparent = false);
++
++private:
++	BlendRegistry blend_mode_registry;
+ };
