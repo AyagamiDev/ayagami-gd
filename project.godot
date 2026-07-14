@@ -11,3 +11,14 @@ config_version=5
 [application]
 
 config/name="ayagami-demo"
+run/main_scene="uid://bpvrn0bm18wb4"
+config/features=PackedStringArray("4.7")
+
+[display]
+
+window/subwindows/embed_subwindows=false
+window/stretch/aspect="expand"
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.039215688, 0.039215688, 0.039215688, 1)

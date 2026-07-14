@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, INode2D, MeshInstance2D, ProjectSettings
+	ArrayMesh, INode2D, MeshInstance2D, ProjectSettings, RenderingServer, ShaderMaterial, SubViewport
 };
 use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
@@ -22,6 +22,9 @@ pub struct LoadedModel<T: Model, R: AsRef<T>> {
 #[class(tool, init, base = Node2D)]
 pub struct AyagamiModel {
 	base: Base<Node2D>,
+	#[var(pub)]
+	size: Vector2i,
+
 	pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
 
 	// fast access map of driver parameter ids as godot properties
@@ -39,7 +42,6 @@ impl AyagamiModel {
 	pub fn load(&mut self) {
 		let file_path = self.base().get_meta("moc").to::<GString>();
 		let abs_path = ProjectSettings::singleton().globalize_path(&file_path);
-		godot_print!("[Ayagami] model path: {} ({})", file_path, abs_path);
 		let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
 
 		let model = Box::new(ParsedModel::load(&mut f).unwrap());
@@ -60,13 +62,14 @@ impl AyagamiModel {
 			}
 		);
 
-		self.model = Some(LoadedModel {
+		let loaded = LoadedModel {
 			model,
 			driver,
-		});
+		};
+		self.model = Some(loaded);
 	}
 
-	pub fn update_meshes(&mut self) {
+	pub fn update_meshes(&mut self, force: bool) {
 		let mut mesh_group = self.base().get_node_as::<Node>("Meshes");
 		let meshes = mesh_group.get_children().iter_shared().fold(
 			HashMap::new(),
@@ -86,7 +89,7 @@ impl AyagamiModel {
 		// then we will be able to sensibly use z-index
 		// but as long as z-index is a global sort order, it's better for use the scene tree
 		// and pray that a model isn't constantly changing its render order
-		if md.driver.order_changed() {
+		if md.driver.order_changed() || force {
 			for (order, uid) in md.driver.sorted_artmeshes().iter().enumerate() {
 				let mesh_instance = meshes.get(uid).unwrap();
 				mesh_group.move_child(mesh_instance, order as i32);
@@ -95,7 +98,7 @@ impl AyagamiModel {
 
 		let px_size = md.model.canvas_properties().scale;
 		let origin = md.model.canvas_properties().center;
-		
+
 		// update mesh vertices
 		for (uid, child) in meshes.iter() {
 			let mut mesh_instance = child.to_owned().cast::<MeshInstance2D>();
@@ -106,13 +109,19 @@ impl AyagamiModel {
 				continue;
 			}
 			let m = maybe_m.unwrap();
-			if !m.updated {
+			if !m.updated && !force {
 				continue;
 			}
 			
 			let verts = m.vertices;
 			let count = verts.len();
 			mesh_instance.set_visible(m.visual.visible);
+			mesh_instance.set_self_modulate(Color {
+				r: 1.0,
+				g: 1.0,
+				b: 1.0,
+				a: m.visual.opacity
+			});
 
 			if m.visual.visible {
 				let mut ary = PackedVector2Array::new();
@@ -135,8 +144,50 @@ impl AyagamiModel {
 				mesh.surface_update_vertex_region(0, 0, &ary.to_byte_array());
 
 				// aabb does not get automatically updated when directly updating the vertex region
-				let aabb = Aabb::new(Vector3::new(vtx_min.x, vtx_max.y, 0.0), vtx_max - vtx_min);
-				mesh.set_custom_aabb(aabb);
+				let aabb = Aabb::new(Vector3::new(vtx_min.x, vtx_min.y, 0.0), vtx_max - vtx_min);
+				let existing_aabb = mesh.get_custom_aabb();
+
+				// only mark as dirty of the bounds of the mesh have shifted so that we may
+				// update affected mask viewports
+				if aabb != existing_aabb {
+					mesh.set_custom_aabb(aabb);
+				}
+			}
+		}
+
+		// update viewport dimensions and transform for masks
+		let mask_group = self.base().get_node_as::<Node>("Masks");
+		for mut mask in mask_group.get_children().iter_shared().map(|n| n.cast::<SubViewport>()) {
+			let mut group_aabb: Aabb = {
+				let node = mask.get_child(0).unwrap().cast::<MeshInstance2D>();
+				let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
+				
+				mesh.get_custom_aabb()
+			};
+
+			for node in mask.get_children().iter_shared().map(|n| n.cast::<MeshInstance2D>()) {
+				let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
+				let aabb = mesh.get_custom_aabb();
+				group_aabb = group_aabb.merge(aabb);
+			}
+			
+			group_aabb = group_aabb.grow(4.0);
+
+			let dimensions = Vector2i {
+				x: group_aabb.size.x as i32,
+				y: group_aabb.size.y as i32,
+			};
+			let offset = Vector2 {
+				x: group_aabb.position.x,
+				y: group_aabb.position.y,
+			};
+			mask.set_size(dimensions);
+			mask.set_canvas_transform(Transform2D::from_angle_origin(0.0, -offset));
+
+			for np in mask.get_meta("meshes").to::<VarArray>().iter_shared().map(|v| v.to::<NodePath>()) {
+				let mut node = self.base().get_node_as::<MeshInstance2D>(&np);
+				node.set_instance_shader_parameter("mask_offset", &offset.to_variant());
+				//node.set_instance_shader_parameter("canvas_size", &offset.to_variant());
 			}
 		}
 	}
@@ -148,6 +199,31 @@ impl INode2D for AyagamiModel {
 		// reconnect scene to an ayagami driver when instantiated from an imported resource
 		if what == CanvasItemNotification::READY && !self.is_loaded() {
 			self.load();
+			self.update_meshes(true);
+		}
+		// reconnect all mask viewport textures to the dependent mesh shaders
+		// this is necessary because Viewport texture paths are relative to the absolute scene tree
+		if what == CanvasItemNotification::ENTER_TREE {
+			let mask_group = self.base().get_node_as::<Node>("Masks");
+			for mask in mask_group.get_children().iter_shared().map(|n| n.cast::<SubViewport>()) {
+				for np in mask.get_meta("meshes").to::<VarArray>().iter_shared().map(|v| v.to::<NodePath>()) {
+					let node = self.base().get_node_as::<MeshInstance2D>(&np);
+					let mut mat = node.get_material().unwrap().cast::<ShaderMaterial>();
+					mat.set_shader_parameter(
+						"tex_mask",
+						&mask.get_texture().unwrap().to_variant()
+					);
+				}
+			}
+			/* Bug: godot-rust has not properly scoped this for public access
+			RenderingServer::singleton().canvas_item_set_custom_rect_full(
+				self.base().get_canvas_item(), true, 
+				Rect2i {
+					position: Vector2i::ZERO,
+					size: self.size
+				}
+			);
+			*/
 		}
 	}
 
@@ -156,7 +232,7 @@ impl INode2D for AyagamiModel {
 			return;
 		}
 
-		self.update_meshes();
+		self.update_meshes(false);
 
 		// reorder mesh nodes if z-index has changed for any
 
@@ -203,7 +279,6 @@ impl INode2D for AyagamiModel {
 		let mut custom_params: Vec<PropertyInfo> = Vec::new();
 
 		if !self.is_loaded() {
-			godot_print!("ayagami model not yet loaded");
 			return custom_params;
 		}
 

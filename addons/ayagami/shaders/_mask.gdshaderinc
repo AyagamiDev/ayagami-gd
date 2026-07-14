@@ -5,8 +5,8 @@ uniform bool has_mask = false;
 
 uniform sampler2D tex_mask : filter_linear_mipmap, repeat_disable, hint_default_black;
 uniform float mask_scale = 1.0;
-uniform vec2 canvas_size = vec2(2,2);
-uniform vec2 mesh_offset = vec2(0,0);
+instance uniform vec2 canvas_size = vec2(2,2);
+instance uniform vec2 mask_offset = vec2(0,0);
 
 varying vec2 MASK_UV;
 varying vec4 modulate;
@@ -22,7 +22,7 @@ bool discard_mask() {
 
 vec2 mask_uv(vec2 vtx) {
 	vec2 mask_size = vec2(textureSize(tex_mask, 0)) / mask_scale;
-    vec2 mask_vtx = vtx - mesh_offset;
+    vec2 mask_vtx = vtx - mask_offset;
     return mask_vtx / mask_size;
 }
 

@@ -1,3 +1,77 @@
 [gd_scene format=3 uid="uid://bpvrn0bm18wb4"]
 
-[node name="Node" type="Node" unique_id=2118285685]
+[ext_resource type="Script" uid="uid://jyuay6fo8s3t" path="res://main.gd" id="1_ig7tw"]
+[ext_resource type="Theme" uid="uid://der6k0c3qiqhp" path="res://theme.tres" id="2_0xm2m"]
+
+[node name="Main" type="Node" unique_id=1253313171]
+script = ExtResource("1_ig7tw")
+
+[node name="LoadedModel" type="Node2D" parent="." unique_id=467543319]
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1879228543]
+offset = Vector2(-300, 0)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1883411662]
+
+[node name="Control" type="HBoxContainer" parent="CanvasLayer" unique_id=855609183]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_0xm2m")
+theme_override_constants/separation = 0
+
+[node name="PanelContainer2" type="PanelContainer" parent="CanvasLayer/Control" unique_id=1150159706]
+layout_mode = 2
+theme_type_variation = &"FlatPanelContainer"
+
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Control/PanelContainer2" unique_id=578102857]
+custom_minimum_size = Vector2(400, 0)
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Control/PanelContainer2/PanelContainer" unique_id=2129280456]
+layout_mode = 2
+
+[node name="FilePicker" type="Button" parent="CanvasLayer/Control/PanelContainer2/PanelContainer/VBoxContainer" unique_id=393322620]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Open Model (*.model3.json)"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/Control/PanelContainer2/PanelContainer/VBoxContainer" unique_id=453122298]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Parameters" type="VBoxContainer" parent="CanvasLayer/Control/PanelContainer2/PanelContainer/VBoxContainer/ScrollContainer" unique_id=1556152832]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="FileDialog" type="FileDialog" parent="CanvasLayer/Control" unique_id=704936632]
+unique_name_in_owner = true
+title = "Open a File"
+file_mode = 0
+display_mode = 1
+access = 2
+filters = PackedStringArray("*.model3.json")
+use_native_dialog = true
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Control" unique_id=318204551]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Control/VBoxContainer" unique_id=1405303432]
+layout_mode = 2
+size_flags_vertical = 10
+theme_type_variation = &"FlatPanelContainer"
+
+[node name="ModelInfo" type="Label" parent="CanvasLayer/Control/VBoxContainer/PanelContainer" unique_id=1282684443]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Model: (empty) | Parameters: 0 | Meshes: 0 | Size: 0x0"
+horizontal_alignment = 2
+
+[connection signal="pressed" from="CanvasLayer/Control/PanelContainer2/PanelContainer/VBoxContainer/FilePicker" to="." method="_on_file_picker_pressed"]
+[connection signal="file_selected" from="CanvasLayer/Control/FileDialog" to="." method="_on_file_selected"]

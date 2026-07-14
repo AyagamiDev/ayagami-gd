@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use godot::classes::mesh::PrimitiveType;
+use godot::classes::viewport::DefaultCanvasItemTextureFilter;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
+	ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, RenderingServer, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
 };
 
 use ayagami::core::{
@@ -70,7 +71,7 @@ impl AyagamiLoader {
 		mesh_group.set_owner(&scene);
 
 		let mut masks = HashMap::new();
-		let mut mask_group = Node::new_alloc();
+		let mut mask_group = Node2D::new_alloc(); // using node2d so texture filter settings can propogate down to masks
 		mask_group.set_name("Masks");
 		scene.add_child(&mask_group);
 		mask_group.set_owner(&scene);
@@ -85,7 +86,11 @@ impl AyagamiLoader {
 		md.driver.drive(m);
 
 		let px_size = m.canvas_properties().scale;
-		let origin = m.canvas_properties().center;
+		let origin = Vector2 {
+			x: m.canvas_properties().center.x,
+			y: m.canvas_properties().center.y
+		};
+		let canvas_size = m.canvas_properties().dimensions;
 
 		// make all the art meshes
 		for (_i, uid) in md.driver.sorted_artmeshes().into_iter().enumerate() {
@@ -110,14 +115,15 @@ impl AyagamiLoader {
 					vary.resize(vtx_count as usize);
 
 					for i in 0..am.vertices.len() {
-						vary[i] = Vector2::new(am.vertices[i].x * px_size, am.vertices[i].y * px_size) + Vector2::new(origin.x, origin.y);
+						vary[i] = Vector2 {
+							x: am.vertices[i].x * px_size,
+							y: am.vertices[i].y * px_size
+						} + origin;
 					}
 					ary.set(
 						mesh::ArrayType::VERTEX.ord() as usize,
 						&vary
 					);
-
-					godot_print!("vertices: {}", vary);
 				}
 				
 				// texture UVs
@@ -129,7 +135,10 @@ impl AyagamiLoader {
 
 					for i in 0..vtx_count {
 						let uv = texcoords[(offset + i) as usize];
-						vary[i as usize] = Vector2::new(uv.x, uv.y);
+						vary[i as usize] = Vector2 {
+							x: uv.x,
+							y: uv.y
+						};
 					}
 
 					ary.set(
@@ -151,6 +160,9 @@ impl AyagamiLoader {
 				}
 
 				mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &ary);
+
+				let aabb = mesh.get_aabb();
+				mesh.set_custom_aabb(aabb);
 			}
 
 			let mut mesh_instance = MeshInstance2D::new_alloc();
@@ -179,35 +191,60 @@ impl AyagamiLoader {
 			let mask_parts: Vec<u32> = artmesh.clips().into_iter().map(|p| p.uid()).collect();
 			if mask_parts.len() > 0 {
 				let mask_ids = PackedArray::from_iter(mask_parts.clone().into_iter().map(|c| c.to_string().to_gstring()));
-				let hash = GString::from("|").join(&mask_ids).to_string_name();
+				let hash = GString::from("_").join(&mask_ids).to_string_name();
 				let mask_name = hash.clone();
 
-				if !masks.contains_key(&hash) {
-				
-					let mut vp = SubViewport::new_alloc();
-					vp.set_name(&mask_name);
+				let mask = masks.entry(hash).or_insert_with(
+					|| {
+						let mut vp = SubViewport::new_alloc();
+						vp.set_name(&mask_name);
+						vp.set_transparent_background(true);
 
-					for part in mask_parts {
-						let src_mesh = meshes.get_mut(&part).unwrap();
-						let mut mi = src_mesh.duplicate_node();
-						mi.set_material(&shaders.at(3));
-						vp.add_child(&mi);
+						// TODO enable this once godot-rust exposes the enum, it's currently missing in 0.5.4
+						// vp.set_default_canvas_item_texture_filter(DefaultCanvasItemTextureFilter::PARENT_NODE);
+
+						// canvas transform can not be set before the node is in the SceneTree
+						// accurate viewport size and offsets will be delayed until the model
+						// is added and visible for rendering
+						vp.set_size(Vector2i { x: 2, y: 2 });
+
+						for part in mask_parts {
+							let src_mi = meshes.get(&part).unwrap();
+							let mesh = src_mi.get_mesh().unwrap().cast::<ArrayMesh>();
+							let mut mi = MeshInstance2D::new_alloc();
+							mi.set_name(&src_mi.get_name());
+							mi.set_mesh(&mesh);
+							mi.set_texture(&src_mi.get_texture().unwrap());
+							mi.set_material(&shaders.at(3));
+							vp.add_child(&mi);
+						}
+
+						mask_group.add_child(&vp);
+						
+						return vp;
 					}
-
-					mask_group.add_child(&vp);
-					masks.insert(hash, vp);
-				}
+				);
 
 				let node = meshes.get_mut(&artmesh.uid()).unwrap();
+				let offset = mask.get_canvas_transform().origin;
 				
 				let mut tex = ViewportTexture::new_gd();
-				tex.set_viewport_path_in_scene(&format!("Masks/{}", mask_name).to_node_path());
 				tex.set_local_to_scene(true);
 
 				let mut mat = node.get_material().unwrap().duplicate_resource().cast::<ShaderMaterial>();
 				mat.set_shader_parameter("tex_mask", &tex.to_variant());
 				mat.set_shader_parameter("has_mask", &true.to_variant());
+				mat.set_shader_parameter("mesh_offset", &offset.to_variant());
 				node.set_material(&mat);
+
+				let mut dependent_meshes: VarArray;
+				if !mask.has_meta("meshes") {
+					mask.set_meta("meshes", &VarArray::new().to_variant());
+				}
+				dependent_meshes = mask.get_meta("meshes").to::<VarArray>();
+				dependent_meshes.push(&format!("Meshes/{}", node.get_name()).to_node_path());
+
+				mask.set_meta("meshes", &dependent_meshes.to_variant());
 			}
 		}
 
@@ -223,6 +260,11 @@ impl AyagamiLoader {
 				m.set_owner(&scene);
 			}
 		}
+
+		scene.bind_mut().set_size(Vector2i {
+			x: canvas_size.x as i32,
+			y: canvas_size.y as i32,
+		});
 
 		scene
 	}
