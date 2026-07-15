@@ -9,19 +9,16 @@ void fragment() {
 	}
 	
 	vec4 color_tex = texture(TEXTURE, UV);
-	
-	if (color_tex.a == 0.0) {
-		discard;
-	}
-	
-	color_tex.rgba = color_tex.rgba * color_multiply.rgba;
-	color_tex.rgb = (color_tex.rgb + color_screen.rgb) - (color_tex.rgb * color_screen.rgb);
-	
 	float mask_val = sample_mask();
-	if (mask_val == 0.0) {
+	
+	if (color_tex.a == 0.0 || mask_val == 0.0) {
 		discard;
 	}
 	
-	vec4 color = color_tex * color_base * modulate * vec4(1.0, 1.0, 1.0, mask_val);
+	vec4 color = artmesh_color(color_tex);
+	color *= color_base;
+	color *= modulate;
+	color *= vec4(vec3(1.0), mask_val);
+	
 	COLOR = vec4(color.rgb * color.a, color.a);
 }
