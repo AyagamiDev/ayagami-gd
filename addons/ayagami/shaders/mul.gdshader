@@ -19,7 +19,6 @@ void fragment() {
 	color *= color_base;
 	color *= modulate;
 	color *= vec4(vec3(1.0), mask_val);
-	color.rgb += vec3(1.0 - color.a);
 	
 	COLOR = vec4(color.rgb * color.a, color.a);
 }

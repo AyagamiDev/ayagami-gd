@@ -98,14 +98,10 @@ impl AyagamiLoader {
 		md.driver.drive(m);
 
 		let px_size = m.canvas_properties().scale;
-		let origin = Vector2 {
-			x: m.canvas_properties().center.x,
-			y: m.canvas_properties().center.y
-		};
 		let canvas_size = m.canvas_properties().dimensions;
 
 		// make all the art meshes
-		for (_i, uid) in md.driver.sorted_artmeshes().into_iter().enumerate() {
+		for uid in md.driver.sorted_artmeshes().into_iter() {
 			let artmesh = md.model.artmeshes().get(*uid).unwrap();
 			// TODO get mesh state when parameters are at defaults
 			// let raw_mesh = md.driver.artmesh_state(artmesh.uid());

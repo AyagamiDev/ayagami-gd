@@ -102,7 +102,7 @@ func _on_file_selected(path: String) -> void:
 	
 	var anim_list = anim_library.get_animation_list().duplicate()
 	anim_list.sort_custom(
-		func (a, b):
+		func (a, _b):
 			return a == "RESET"
 	)
 	for motion in anim_list:
