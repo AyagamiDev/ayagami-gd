@@ -54,8 +54,10 @@ impl AyagamiLoader {
 			if ResourceLoader::singleton().exists(real_path) {
 				tex = ResourceLoader::singleton().load(real_path).unwrap().cast();
 			} else {
-				let img = Image::load_from_file(real_path);
-				tex = ImageTexture::create_from_image(img.as_ref()).unwrap().upcast();
+				let mut img = Image::load_from_file(real_path);
+				img.as_mut().unwrap().generate_mipmaps();
+				let img_tex = ImageTexture::create_from_image(img.as_ref()).unwrap();
+				tex = img_tex.upcast();
 				tex.take_over_path(real_path);
 			}
 
@@ -115,71 +117,73 @@ impl AyagamiLoader {
 			let vtx_count = artmesh.vertex_count();
 			let am = md.driver.artmesh_state(uid).unwrap();
 					
-			if vtx_count > 0 {
-				let mut ary = VarArray::new();
-				ary.resize(mesh::ArrayType::MAX.ord() as usize, &Variant::nil());
-
-				// vertices
-				{
-					let mut vary = PackedVector2Array::new();
-					vary.resize(vtx_count as usize);
-
-					for i in 0..am.vertices.len() {
-						vary[i] = Vector2 {
-							x: am.vertices[i].x * px_size,
-							y: am.vertices[i].y * px_size
-						} + origin;
-					}
-					ary.set(
-						mesh::ArrayType::VERTEX.ord() as usize,
-						&vary
-					);
-				}
-				
-				// texture UVs
-				{
-					let texcoords = md.model.texcoord_buffer().unwrap();
-					let offset = artmesh.texcoord_offset();
-					let mut vary = PackedVector2Array::new();
-					vary.resize(vtx_count as usize);
-
-					for i in 0..vtx_count {
-						let uv = texcoords[(offset + i) as usize];
-						vary[i as usize] = Vector2 {
-							x: uv.x,
-							y: uv.y
-						};
-					}
-
-					ary.set(
-						mesh::ArrayType::TEX_UV.ord() as usize,
-						&vary
-					);
-				}
-
-				// indices
-				{
-					let vary = PackedInt32Array::from_iter(
-						artmesh.indices_slice().iter().map(|i| *i as i32)
-					);
-					
-					ary.set(
-						mesh::ArrayType::INDEX.ord() as usize,
-						&vary
-					);
-				}
-
-				mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &ary);
-
-				let aabb = mesh.get_aabb();
-				mesh.set_custom_aabb(aabb);
+			// must have enough vertices to create a tri
+			if vtx_count < 3 {
+				continue;
 			}
+
+			let mut ary = VarArray::new();
+			ary.resize(mesh::ArrayType::MAX.ord() as usize, &Variant::nil());
+
+			// vertices
+			{
+				let mut vary = PackedVector2Array::new();
+				vary.resize(vtx_count as usize);
+
+				for (i, vtx) in am.vertices.iter().enumerate() {
+					vary[i] = Vector2 {
+						x: vtx.x * px_size,
+						y: vtx.y * px_size
+					};
+				}
+				ary.set(
+					mesh::ArrayType::VERTEX.ord() as usize,
+					&vary
+				);
+			}
+			
+			// texture UVs
+			{
+				let texcoords = md.model.texcoord_buffer().unwrap();
+				let offset = artmesh.texcoord_offset();
+				let mut vary = PackedVector2Array::new();
+				vary.resize(vtx_count as usize);
+
+				for i in 0..vtx_count {
+					let uv = texcoords[(offset + i) as usize];
+					vary[i as usize] = Vector2 {
+						x: uv.x,
+						y: uv.y
+					};
+				}
+
+				ary.set(
+					mesh::ArrayType::TEX_UV.ord() as usize,
+					&vary
+				);
+			}
+
+			// indices
+			{
+				let vary = PackedInt32Array::from_iter(
+					artmesh.indices_slice().iter().map(|i| *i as i32)
+				);
+				
+				ary.set(
+					mesh::ArrayType::INDEX.ord() as usize,
+					&vary
+				);
+			}
+
+			mesh.add_surface_from_arrays(PrimitiveType::TRIANGLES, &ary);
+
+			let aabb = mesh.get_aabb();
+			mesh.set_custom_aabb(aabb);
 
 			let mut mesh_instance = MeshInstance2D::new_alloc();
 			mesh_instance.set_name(&id);
 			mesh_instance.set_mesh(&mesh);
 			mesh_instance.set_meta("uid", &uid.to_variant());
-			mesh_instance.set_visible(am.visual.visible);
 			mesh_instance.set_self_modulate(Color { r: 1.0, g: 1.0, b: 1.0, a: am.visual.opacity });
 			
 			let tex_id = artmesh.texture() as usize;

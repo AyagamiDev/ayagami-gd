@@ -9,7 +9,7 @@ use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
 
 use ayagami::file::ParsedModel;
-use ayagami::core::{Item, Model, Param, Part};
+use ayagami::core::{Collection, Item, Model, Param, Part};
 use ayagami::driver::Driver;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
@@ -123,15 +123,16 @@ impl AyagamiModel {
 			let mut mesh_instance = child.to_owned().cast::<MeshInstance2D>();
 			let mut mesh = mesh_instance.get_mesh().unwrap().cast::<ArrayMesh>();
 			
-			// ignore updates for empty meshes
-			if mesh.get_surface_count() == 0 {
-				continue;
-			}
-			
 			let m = md.driver.artmesh_state(*uid).unwrap();
 			
 			let verts = m.vertices;
 			let count = verts.len();
+
+			if (count < 3) {
+				mesh_instance.set_visible(false);
+				continue;
+			}
+
 			mesh_instance.set_visible(m.visual.visible);
 			mesh_instance.set_self_modulate(Color {
 				r: 1.0,
@@ -171,8 +172,8 @@ impl AyagamiModel {
 			let mut vtx_max = Vector3::new(f32::MIN, f32::MIN, 0.0); // bottom-right
 
 			for (i, vtx) in verts.iter().enumerate() {
-				let x = vtx.x * px_size + origin.x;
-				let y  = vtx.y * px_size + origin.y;
+				let x = vtx.x * px_size;
+				let y  = vtx.y * px_size;
 				vtx_min.x = f32::min(vtx_min.x, x); // left
 				vtx_min.y = f32::min(vtx_min.y, y); // top
 				vtx_max.x = f32::max(vtx_max.x, x); // right
@@ -381,13 +382,6 @@ impl INode2D for AyagamiModel {
 		let m = md.model.as_ref();
 
 		// expose driver parameters as fields on the model
-		custom_params.push(PropertyInfo {
-			variant_type: VariantType::NIL,
-			class_name: ClassId::none().to_string_name(),
-			property_name: "parameters".to_string_name(),
-			hint_info: PropertyHintInfo { hint: PropertyHint::NONE, hint_string: "".to_gstring() },
-			usage: PropertyUsageFlags::CATEGORY
-		});
 		for param in m.params().into_iter() {
 			custom_params.push(PropertyInfo {
 				variant_type: VariantType::FLOAT,
@@ -397,18 +391,11 @@ impl INode2D for AyagamiModel {
 					hint: PropertyHint::RANGE,
 					hint_string: format!("{},{}", param.min(), param.max()).to_gstring(),
 				},
-				usage: PropertyUsageFlags::STORAGE,
+				usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
 			});
 		}
 
 		// expose driver parts
-		custom_params.push(PropertyInfo {
-			variant_type: VariantType::NIL,
-			class_name: ClassId::none().to_string_name(),
-			property_name: "parts".to_string_name(),
-			hint_info: PropertyHintInfo { hint: PropertyHint::NONE, hint_string: "".to_gstring() },
-			usage: PropertyUsageFlags::CATEGORY
-		});
 		for part in m.parts().into_iter() {
 			custom_params.push(PropertyInfo {
 				variant_type: VariantType::FLOAT,
@@ -418,10 +405,32 @@ impl INode2D for AyagamiModel {
 					hint: PropertyHint::RANGE,
 					hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
 				},
-				usage: PropertyUsageFlags::STORAGE,
+				usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
 			});
 		}
 
 		custom_params
+	}
+
+	fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
+		if self.model.is_none() {
+			return None;
+		}
+
+		if property.begins_with("parameters/") {
+			if let Some(uid) = self.param_lookup.get(&property) {
+				let m = self.model.as_ref().unwrap();
+				let md = &m.model;
+				let params = md.params();
+				let p = params.get(*uid).unwrap();
+				return Some(p.default().to_variant());
+			}
+		}
+
+		if property.begins_with("parts/") {
+			return Some(1.0.to_variant());
+		}
+
+		return None;
 	}
 }

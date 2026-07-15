@@ -6,7 +6,8 @@
 [ext_resource type="Texture2D" uid="uid://de65l6pji1w7v" path="res://example/PlayStart.svg" id="4_lquwl"]
 [ext_resource type="Texture2D" uid="uid://b3rm2pb0nw6uq" path="res://example/Stop.svg" id="5_7mycd"]
 
-[node name="Main" type="Node" unique_id=1253313171]
+[node name="Main" type="Node2D" unique_id=1567391364]
+texture_filter = 4
 script = ExtResource("1_ig7tw")
 
 [node name="LoadedModel" type="Node2D" parent="." unique_id=467543319]
@@ -85,41 +86,75 @@ mouse_default_cursor_shape = 13
 script = ExtResource("3_h2yge")
 camera = NodePath("../../../../Camera2D")
 
-[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl" unique_id=1265499278]
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl" unique_id=130057175]
 layout_mode = 1
-anchors_preset = -1
+anchors_preset = 11
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -200.0
-offset_top = 16.0
-offset_right = -16.0
-offset_bottom = 90.0
+anchor_bottom = 1.0
+offset_left = -270.0
 grow_horizontal = 0
+grow_vertical = 2
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
 
-[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer" unique_id=1360457549]
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer" unique_id=203441551]
 layout_mode = 2
 
-[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer" unique_id=1682543617]
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=1265499278]
+layout_mode = 2
+size_flags_horizontal = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer" unique_id=1360457549]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer" unique_id=1682543617]
 layout_mode = 2
 alignment = 2
 
-[node name="Label" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=593762417]
+[node name="Label" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/HBoxContainer" unique_id=593762417]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Current Animation"
 
-[node name="PlayButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=1542258533]
+[node name="PlayButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/HBoxContainer" unique_id=1542258533]
 layout_mode = 2
 icon = ExtResource("4_lquwl")
 
-[node name="StopButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=129686314]
+[node name="StopButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/HBoxContainer" unique_id=129686314]
 layout_mode = 2
 icon = ExtResource("5_7mycd")
 
-[node name="MotionList" type="OptionButton" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer" unique_id=1811455164]
+[node name="MotionList" type="OptionButton" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer" unique_id=1811455164]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(250, 0)
 layout_mode = 2
+
+[node name="PanelContainer2" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=1105446463]
+layout_mode = 2
+size_flags_vertical = 10
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2" unique_id=165709085]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2/HBoxContainer" unique_id=2006501685]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Render Quality"
+
+[node name="Label2" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2/HBoxContainer" unique_id=1351531966]
+layout_mode = 2
+text = "Nearest"
+
+[node name="QualityToggle" type="CheckButton" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2/HBoxContainer" unique_id=1760960721]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+
+[node name="Label3" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2/HBoxContainer" unique_id=581407444]
+layout_mode = 2
+text = "Bilinear"
 
 [node name="FileDialog" type="FileDialog" parent="CanvasLayer/Layout" unique_id=704936632]
 unique_name_in_owner = true
@@ -147,7 +182,8 @@ horizontal_alignment = 2
 
 [connection signal="model_loaded" from="." to="CanvasLayer/Layout/HBoxContainer/DragControl" method="_on_model_loaded"]
 [connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/FilePicker" to="." method="_on_file_picker_pressed"]
-[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer/PlayButton" to="." method="_on_play_button_pressed"]
-[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer/StopButton" to="." method="_on_stop_button_pressed"]
-[connection signal="item_selected" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/MotionList" to="." method="_on_motion_list_item_selected"]
+[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/HBoxContainer/PlayButton" to="." method="_on_play_button_pressed"]
+[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/HBoxContainer/StopButton" to="." method="_on_stop_button_pressed"]
+[connection signal="item_selected" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer/VBoxContainer/MotionList" to="." method="_on_motion_list_item_selected"]
+[connection signal="toggled" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PanelContainer2/HBoxContainer/QualityToggle" to="." method="_on_quality_toggle_toggled"]
 [connection signal="file_selected" from="CanvasLayer/Layout/FileDialog" to="." method="_on_file_selected"]

@@ -12,7 +12,7 @@ func _on_model_loaded(model: AyagamiModel) -> void:
 	var ts = Vector2(ms.x * vs.y/ms.y, vs.y) if rs > ri else Vector2(vs.x, ms.y * vs.x / ms.y)
 	
 	camera.zoom = ts / ms
-	camera.position = Vector2(model.size) / 2.0
+	camera.position = model.position
 	bounds = Rect2(
 		-model.size / 2.0,
 		model.size

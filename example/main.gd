@@ -1,4 +1,4 @@
-extends Node
+extends Node2D
 
 var model: AyagamiModel
 
@@ -141,3 +141,5 @@ func _on_stop_button_pressed() -> void:
 	
 	(model.get_node("MotionController") as AnimationPlayer).stop()
 	
+func _on_quality_toggle_toggled(toggled_on: bool) -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS if toggled_on else CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
