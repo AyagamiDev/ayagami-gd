@@ -338,7 +338,7 @@ impl INode2D for AyagamiModel {
 
 		if parameter.begins_with("parts/") {
 			if let Some(uid) = self.part_lookup.get(&parameter) {
-				let r = md.driver.set_param(*uid, value.to());
+				let r = md.driver.set_part_opacity(*uid, value.to());
 				if r.is_ok() {
 					self.part_opacities.insert(parameter, value.to());
 					self.dirty = true;
@@ -357,6 +357,12 @@ impl INode2D for AyagamiModel {
 
 		if parameter.begins_with("parameters/") {
 			if let Some(value) = self.parameters.get(&parameter) {
+				return Some(value.to_variant());
+			}
+		}
+
+		if parameter.begins_with("parts/") {
+			if let Some(value) = self.part_opacities.get(&parameter) {
 				return Some(value.to_variant());
 			}
 		}

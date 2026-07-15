@@ -7,5 +7,6 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-ayagami = { path = "vendor/ayagami/ayagami" }
+ayagami = { git = "https://github.com/AyagamiDev/ayagami.git", branch = "part-depth-stuff" }
+glob = "0.3.3"
 godot = "0.5.4"

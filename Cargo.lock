@@ -64,6 +64,7 @@ dependencies = [
 [[package]]
 name = "ayagami"
 version = "0.1.0"
+source = "git+https://github.com/AyagamiDev/ayagami.git?branch=part-depth-stuff#d54d64a41dee285b1f6751bce5ac3c0718bce3fe"
 dependencies = [
  "byteorder",
  "derive_more",
@@ -86,6 +87,7 @@ name = "ayagami-gd"
 version = "0.0.0"
 dependencies = [
  "ayagami",
+ "glob",
  "godot",
 ]
 
@@ -214,6 +216,12 @@ dependencies = [
  "zerocopy",
  "zerocopy-derive",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "godot"

@@ -40,11 +40,43 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Open Model (*.model3.json)"
 
-[node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer" unique_id=453122298]
+[node name="TabContainer" type="TabContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer" unique_id=84049403]
 layout_mode = 2
 size_flags_vertical = 3
+current_tab = 0
 
-[node name="Parameters" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/ScrollContainer" unique_id=1556152832]
+[node name="Parameters" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=453122298]
+layout_mode = 2
+size_flags_vertical = 3
+metadata/_tab_index = 0
+
+[node name="ParameterList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Parameters" unique_id=1556152832]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="Parts" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=769393609]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+metadata/_tab_index = 1
+
+[node name="PartList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Parts" unique_id=1170259930]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="Motions" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=1836108915]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+metadata/_tab_index = 2
+
+[node name="MotionList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Motions" unique_id=873101439]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3

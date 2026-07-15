@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 
+use glob::glob;
+use godot::classes::animation::{LoopMode, TrackType};
 use godot::classes::mesh::PrimitiveType;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
+	Animation, AnimationLibrary, ArrayMesh, DirAccess, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, animation_library, mesh
 };
 
 use ayagami::core::{
 	ArtMesh, BlendMode, Collection, Item, Model
 };
+
+use crate::expression::AyagamiExpression;
 use crate::model::AyagamiModel;
 
 fn shader_material( s: &str ) -> Gd<ShaderMaterial> {
@@ -267,5 +271,164 @@ impl AyagamiLoader {
 		});
 
 		scene
+	}
+
+	#[func]
+	pub fn load_motion(&self, file_path: GString) -> Option<Gd<Animation>> {
+		let json = FileAccess::get_file_as_string(&file_path);
+		let motion: VarDictionary = Json::parse_string(&json).to();
+
+		let meta = motion.at("Meta").to::<VarDictionary>();
+		let mut anim = Animation::new_gd();
+
+		let loop_mode = if meta.get("Loop").map_or(false, |v| v.to()) { LoopMode::LINEAR } else { LoopMode:: NONE };
+		anim.set_loop_mode(loop_mode);
+		
+		let fps: f32 = meta.get("FPS").map_or(60.0, |v| v.to());
+		anim.set_step(1.0 / fps);
+
+		let mut last_frame: f64 = 0.0;
+
+		// parse motion curves
+		let curves: VarArray = motion.at("Curves").to();
+		for (c_idx, curve) in curves.iter_shared().map(|v| v.to::<VarDictionary>()).enumerate() {
+			let property: GString = curve.at("Id").to();
+			let segments: VarArray = curve.at("Segments").to();
+
+			if segments.len() < 2 {
+				godot_error!("Invalid Segment, must have at least one point");
+				return None;
+			}
+
+			let track = anim.add_track(TrackType::BEZIER);
+
+			let target_type = match curve.at("Target").to_string().as_str() {
+				"Parameter" => "parameters",
+				"PartOpacity" => "parts",
+				_ => "",
+			};
+
+			anim.track_set_path(track, &format![".:{}/{}", target_type, property].to_node_path());
+			anim.track_set_interpolation_loop_wrap(track, false);
+
+			// first key is always the starting time and value
+			anim.bezier_track_insert_key(track, segments.at(0).to(), segments.at(1).to());
+
+			let mut last_key = anim.track_get_key_count(track) - 1;
+			let mut s_idx = 2;
+			loop {
+				let seg_type: i32 = segments.at(s_idx).to::<f32>() as i32;
+
+				match seg_type {
+					// LINEAR
+					0 => {				
+						let p0_t: f64 = segments.at(s_idx - 2).to();
+						let p0_v: f32 = segments.at(s_idx - 1).to();
+						let p1_t: f64 = segments.at(s_idx + 1).to();
+						let p1_v: f32 = segments.at(s_idx + 2).to();
+
+						// tangents
+						let out_t = Vector2 { x: (p1_t - p0_t) as f32, y: p1_v - p0_v };
+						let in_t = out_t * Vector2 { x: -1.0, y: 1.0};
+
+						anim.bezier_track_set_key_out_handle(track, last_key, out_t);
+
+						last_key = anim.bezier_track_insert_key(track, p1_t, p1_v);
+						anim.bezier_track_set_key_in_handle(track, last_key, in_t);
+
+						s_idx += 3;
+					},
+					// CUBIC BEZIER
+					1 => {										
+						let p0_t: f64 = segments.at(s_idx - 2).to();
+						let p0_v: f32 = segments.at(s_idx - 1).to();
+						let p1_t: f64 = segments.at(s_idx + 1).to();
+						let p1_v: f32 = segments.at(s_idx + 2).to();
+						let p2_t: f64 = segments.at(s_idx + 3).to();
+						let p2_v: f32 = segments.at(s_idx + 4).to();
+						let p3_t: f64 = segments.at(s_idx + 5).to();
+						let p3_v: f32 = segments.at(s_idx + 6).to();
+
+						let tangent_len: f32 = (p0_t - p3_t).abs() as f32 * 0.33333;
+						let out_t = Vector2 { x: tangent_len, y: p1_v - p0_v };
+						let in_t = Vector2 { x: -tangent_len, y: p3_v - p2_v };
+
+						anim.bezier_track_set_key_out_handle(track, last_key, out_t);
+
+						last_key = anim.bezier_track_insert_key(track, p3_t, p3_v);
+
+						anim.bezier_track_set_key_in_handle(track, last_key, in_t);
+
+						s_idx += 7;
+					},
+					// Stepped
+					2 => {
+						let p1_t: f64 = segments.at(s_idx + 1).to();
+						let p1_v: f32 = segments.at(s_idx + 2).to();
+
+						last_key = anim.bezier_track_insert_key(track, p1_t, p1_v);
+						anim.bezier_track_set_key_in_handle(track, last_key, Vector2 { x: 0.0, y: f32::MAX });
+
+						s_idx += 3;
+					},
+					// Inverse Stepped
+					3 => {
+						let p0_t: f64 = segments.at(s_idx - 2).to();
+						let p0_v: f32 = segments.at(s_idx - 1).to();
+						let p1_t: f64 = segments.at(s_idx + 1).to();
+						let p1_v: f32 = segments.at(s_idx + 2).to();
+
+						let out_t = Vector2 { x: (p1_t - p0_t) as f32, y: p1_v - p0_v };
+
+						anim.bezier_track_set_key_out_handle(track, last_key, out_t);
+
+						last_key = anim.bezier_track_insert_key(track, p0_t + 0.01, p1_v);
+						anim.bezier_track_set_key_in_handle(track, last_key, out_t);
+
+						last_key = anim.bezier_track_insert_key(track, p1_t, p1_v);
+
+						s_idx += 3;
+					}
+					_ => {
+						godot_error!("Invalid Motion Segment Type");
+						return None;
+					}
+				}
+
+				last_frame = last_frame.max(anim.track_get_key_time(track, anim.track_get_key_count(track) - 1));
+
+				if s_idx >= segments.len() {
+					break;
+				}
+			}
+		}
+
+		let duration: f64 = meta.get("Duration").map_or(1.0, |v| v.to());
+		
+		anim.set_length(duration.max(last_frame) as f32);
+		anim.set_path(&file_path);
+
+		Some(anim)
+	}
+
+	#[func]
+	pub fn load_motion_library(&self, base_path: GString) -> Gd<AnimationLibrary> {
+		let mut animation_library = AnimationLibrary::new_gd();
+
+		for entry in glob(&format!("{}/**/*.motion3.json", base_path.to_string())).unwrap() {
+			if let Ok(path) = entry {
+				let gpath = path.display().to_string().to_gstring();
+				let name = gpath.get_file().to_string_name();
+				if let Some(animation) = self.load_motion(gpath) {
+					animation_library.add_animation(&name, &animation);
+				}
+			}
+		}
+		return animation_library;
+	}
+
+	#[func]
+	pub fn load_expression(&self, file_path: GString) -> Gd<AyagamiExpression> {
+		Gd::default()
 	}
 }
