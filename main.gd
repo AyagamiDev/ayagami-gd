@@ -1,5 +1,9 @@
 extends Node
 
+var model: AyagamiModel
+
+signal model_loaded(model: AyagamiModel)
+
 func _on_file_picker_pressed() -> void:
 	var file_picker = %FileDialog
 	file_picker.popup_centered()
@@ -8,19 +12,13 @@ func _on_file_selected(path: String) -> void:
 	if path.is_empty():
 		return
 	
-	var model = AyagamiLoader.load_model(path)
+	if model:
+		model.queue_free()
+		await get_tree().process_frame
+	
+	model = AyagamiLoader.load_model(path)
 	model.name = "LoadedModel"
 	
-	var vs = get_viewport().get_visible_rect().size
-	var ms = Vector2(model.size)
-	var ri = ms.aspect()
-	var rs = vs.aspect()
-	var ts = Vector2(ms.x * vs.y/ms.y, vs.y) if rs > ri else Vector2(vs.x, ms.y * vs.x / ms.y)
-	model.scale = ts / ms
-	
-	$Camera2D.position = (Vector2(model.size) * model.scale) / 2.0
-	$LoadedModel.queue_free()
-	await get_tree().process_frame
 	add_child(model)
 	
 #region populate parameters
@@ -94,28 +92,21 @@ func _on_file_selected(path: String) -> void:
 #endregion
 
 #region load motions
-	var anim_player = AnimationPlayer.new()
-	model.add_child(anim_player)
-	var anim_library = AyagamiLoader.load_motion_library(path.get_base_dir())
+	var anim_player: AnimationPlayer = model.get_node("MotionController")
+	var anim_library = AyagamiLoader.load_motion_library(model)
+	anim_player.remove_animation_library("")
 	anim_player.add_animation_library("", anim_library)
 	anim_player.play("RESET")
 	
-	for i in %MotionList.get_children():
-		i.queue_free()
-
-	var btn_group = ButtonGroup.new()
-	for motion in anim_library.get_animation_list():
-		var btn = Button.new()
-		btn.text = motion
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.toggle_mode = true
-		btn.button_group = btn_group
-		btn.toggled.connect(
-			func (t):
-				if t:
-					anim_player.play(motion)
-		)
-		%MotionList.add_child(btn)
+	%MotionList.clear()
+	
+	var anim_list = anim_library.get_animation_list().duplicate()
+	anim_list.sort_custom(
+		func (a, b):
+			return a == "RESET"
+	)
+	for motion in anim_list:
+		%MotionList.add_item(motion)
 #endregion
 
 	%ModelInfo.text = "|".join([
@@ -126,10 +117,27 @@ func _on_file_selected(path: String) -> void:
 		"Masks: %d" % model.get_node("Masks").get_child_count(),
 		"Canvas Size: %dx%d" % [model.size.x, model.size.y]
 	])
-
-func walk_dir(path: String, fn: Callable):
-	for f in DirAccess.get_files_at(path):
-		fn.call(path.path_join(f))
 	
-	for d in DirAccess.get_directories_at(path):
-		walk_dir(path.path_join(d), fn)
+	model_loaded.emit(model)
+
+func _on_motion_list_item_selected(index: int) -> void:
+	if not model:
+		return
+	var motion = %MotionList.get_item_text(index)
+	model.get_node("MotionController").play(motion)
+
+func _on_play_button_pressed() -> void:
+	if not model:
+		return
+	var motion: AnimationPlayer = model.get_node("MotionController")
+	if motion.is_playing():
+		motion.pause()
+	else:
+		motion.play()
+
+func _on_stop_button_pressed() -> void:
+	if not model:
+		return
+	
+	(model.get_node("MotionController") as AnimationPlayer).stop()
+	

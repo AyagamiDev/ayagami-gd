@@ -1,7 +1,7 @@
 use godot::prelude::*;
 use godot::global::Error;
 use godot::classes::{
-	AnimationPlayer, EditorImportPlugin, IEditorImportPlugin, ResourceSaver, animation_library
+	AnimationPlayer, EditorImportPlugin, IEditorImportPlugin, ResourceSaver
 };
 
 use crate::loader::AyagamiLoader;
@@ -61,17 +61,13 @@ impl IEditorImportPlugin for AyagamiImporter {
 		_platform_variants: Array<GString>,
 		_gen_files: Array<GString>
 	) -> Error {
-		let base_dir = source_file.get_base_dir();
-		let mut model = AyagamiLoader::singleton().bind().load_model(source_file);
+		let model = AyagamiLoader::singleton().bind().load_model(source_file);
 
-		if options.at("include_motions").to() {
-			let mut animation_player = AnimationPlayer::new_alloc();
-			animation_player.set_name("MotionController");
-			model.add_child(&animation_player);
-			animation_player.set_owner(&model);
-
-			let mut animation_library = AyagamiLoader::singleton().bind().load_motion_library(base_dir);
+		if options.at("include_motions").to::<bool>() {
+			let mut animation_player = model.get_node_as::<AnimationPlayer>(&"MotionController".to_node_path());
+			let mut animation_library = AyagamiLoader::singleton().bind().load_motion_library(model.clone());
 			animation_library.set_local_to_scene(true);
+			animation_player.remove_animation_library("");
 			animation_player.add_animation_library("", &animation_library);
 		}
 

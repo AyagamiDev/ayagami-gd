@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" uid="uid://jyuay6fo8s3t" path="res://main.gd" id="1_ig7tw"]
 [ext_resource type="Theme" uid="uid://der6k0c3qiqhp" path="res://theme.tres" id="2_0xm2m"]
+[ext_resource type="Script" uid="uid://xwy8mgera07u" path="res://drag_control.gd" id="3_h2yge"]
+[ext_resource type="Texture2D" uid="uid://de65l6pji1w7v" path="res://example/PlayStart.svg" id="4_lquwl"]
+[ext_resource type="Texture2D" uid="uid://b3rm2pb0nw6uq" path="res://example/Stop.svg" id="5_7mycd"]
 
 [node name="Main" type="Node" unique_id=1253313171]
 script = ExtResource("1_ig7tw")
@@ -9,6 +12,7 @@ script = ExtResource("1_ig7tw")
 [node name="LoadedModel" type="Node2D" parent="." unique_id=467543319]
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1879228543]
+unique_name_in_owner = true
 offset = Vector2(-300, 0)
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1883411662]
@@ -22,66 +26,100 @@ grow_vertical = 2
 theme = ExtResource("2_0xm2m")
 theme_override_constants/separation = 0
 
-[node name="PanelContainer2" type="PanelContainer" parent="CanvasLayer/Layout" unique_id=1150159706]
+[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout" unique_id=442445204]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Frame" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer" unique_id=1150159706]
 layout_mode = 2
 size_flags_horizontal = 0
 size_flags_vertical = 3
 theme_type_variation = &"FlatPanelContainer"
 
-[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Layout/PanelContainer2" unique_id=578102857]
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame" unique_id=578102857]
 custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
 
-[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer" unique_id=2129280456]
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer" unique_id=2129280456]
 layout_mode = 2
 
-[node name="FilePicker" type="Button" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer" unique_id=393322620]
+[node name="FilePicker" type="Button" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer" unique_id=393322620]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Open Model (*.model3.json)"
 
-[node name="TabContainer" type="TabContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer" unique_id=84049403]
+[node name="TabContainer" type="TabContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer" unique_id=84049403]
 layout_mode = 2
 size_flags_vertical = 3
 current_tab = 0
 
-[node name="Parameters" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=453122298]
+[node name="Parameters" type="ScrollContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/TabContainer" unique_id=453122298]
 layout_mode = 2
 size_flags_vertical = 3
 metadata/_tab_index = 0
 
-[node name="ParameterList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Parameters" unique_id=1556152832]
+[node name="ParameterList" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/TabContainer/Parameters" unique_id=1556152832]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="Parts" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=769393609]
+[node name="Part Opacity" type="ScrollContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/TabContainer" unique_id=769393609]
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
 metadata/_tab_index = 1
 
-[node name="PartList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Parts" unique_id=1170259930]
+[node name="PartList" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/TabContainer/Part Opacity" unique_id=1170259930]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="Motions" type="ScrollContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer" unique_id=1836108915]
-visible = false
-layout_mode = 2
-size_flags_vertical = 3
-metadata/_tab_index = 2
-
-[node name="MotionList" type="VBoxContainer" parent="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/TabContainer/Motions" unique_id=873101439]
-unique_name_in_owner = true
+[node name="DragControl" type="Control" parent="CanvasLayer/Layout/HBoxContainer" unique_id=997708102 node_paths=PackedStringArray("camera")]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 8
+mouse_default_cursor_shape = 13
+script = ExtResource("3_h2yge")
+camera = NodePath("../../../../Camera2D")
+
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl" unique_id=1265499278]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 90.0
+grow_horizontal = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer" unique_id=1360457549]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer" unique_id=1682543617]
+layout_mode = 2
+alignment = 2
+
+[node name="Label" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=593762417]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Current Animation"
+
+[node name="PlayButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=1542258533]
+layout_mode = 2
+icon = ExtResource("4_lquwl")
+
+[node name="StopButton" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer" unique_id=129686314]
+layout_mode = 2
+icon = ExtResource("5_7mycd")
+
+[node name="MotionList" type="OptionButton" parent="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer" unique_id=1811455164]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 0)
+layout_mode = 2
 
 [node name="FileDialog" type="FileDialog" parent="CanvasLayer/Layout" unique_id=704936632]
 unique_name_in_owner = true
@@ -107,5 +145,9 @@ layout_mode = 2
 text = "Model: (empty) | Parameters: 0 | Meshes: 0 | Size: 0x0"
 horizontal_alignment = 2
 
-[connection signal="pressed" from="CanvasLayer/Layout/PanelContainer2/PanelContainer/VBoxContainer/FilePicker" to="." method="_on_file_picker_pressed"]
+[connection signal="model_loaded" from="." to="CanvasLayer/Layout/HBoxContainer/DragControl" method="_on_model_loaded"]
+[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/Frame/PanelContainer/VBoxContainer/FilePicker" to="." method="_on_file_picker_pressed"]
+[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer/PlayButton" to="." method="_on_play_button_pressed"]
+[connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/HBoxContainer/StopButton" to="." method="_on_stop_button_pressed"]
+[connection signal="item_selected" from="CanvasLayer/Layout/HBoxContainer/DragControl/PanelContainer/VBoxContainer/MotionList" to="." method="_on_motion_list_item_selected"]
 [connection signal="file_selected" from="CanvasLayer/Layout/FileDialog" to="." method="_on_file_selected"]

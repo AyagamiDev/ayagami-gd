@@ -5,7 +5,7 @@ use godot::classes::animation::{LoopMode, TrackType};
 use godot::classes::mesh::PrimitiveType;
 use godot::prelude::*;
 use godot::classes::{
-	Animation, AnimationLibrary, ArrayMesh, DirAccess, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, animation_library, mesh
+	Animation, AnimationLibrary, AnimationPlayer, ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ProjectSettings, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
 };
 
 use ayagami::core::{
@@ -40,6 +40,8 @@ impl AyagamiLoader {
 
 		let file_refs: VarDictionary = settings.at("FileReferences").to();
 		let mut scene = AyagamiModel::new_alloc();
+		scene.set_meta("basepath", &base_path.to_variant());
+
 		let model_file = file_refs.at("Moc").to_string();
 		let model_path = base_path.path_join(&model_file);
 		scene.set_meta("moc", &model_path.to_variant());
@@ -78,6 +80,11 @@ impl AyagamiLoader {
 		mask_group.set_name("Masks");
 		scene.add_child(&mask_group);
 		mask_group.set_owner(&scene);
+
+		let mut motion_controller = AnimationPlayer::new_alloc();
+		motion_controller.set_name("MotionController");
+		scene.add_child(&motion_controller);
+		motion_controller.set_owner(&scene);
 
 		let mut m_scene = scene.bind_mut();
 		m_scene.load();
@@ -270,6 +277,11 @@ impl AyagamiLoader {
 			y: canvas_size.y as i32,
 		});
 
+		let mut animation_library = AnimationLibrary::new_gd();
+		let reset = self.create_reset_motion(&scene);
+		animation_library.add_animation("RESET", &reset);
+		motion_controller.add_animation_library("", &animation_library);
+
 		scene
 	}
 
@@ -291,7 +303,7 @@ impl AyagamiLoader {
 
 		// parse motion curves
 		let curves: VarArray = motion.at("Curves").to();
-		for (c_idx, curve) in curves.iter_shared().map(|v| v.to::<VarDictionary>()).enumerate() {
+		for curve in curves.iter_shared().map(|v| v.to::<VarDictionary>()) {
 			let property: GString = curve.at("Id").to();
 			let segments: VarArray = curve.at("Segments").to();
 
@@ -412,7 +424,8 @@ impl AyagamiLoader {
 	}
 
 	#[func]
-	pub fn load_motion_library(&self, base_path: GString) -> Gd<AnimationLibrary> {
+	pub fn load_motion_library(&self, model: Gd<AyagamiModel>) -> Gd<AnimationLibrary> {
+		let base_path: GString = ProjectSettings::singleton().globalize_path(&model.get_meta("basepath").to::<GString>());
 		let mut animation_library = AnimationLibrary::new_gd();
 
 		for entry in glob(&format!("{}/**/*.motion3.json", base_path.to_string())).unwrap() {
@@ -424,7 +437,31 @@ impl AyagamiLoader {
 				}
 			}
 		}
+
+		let reset = self.create_reset_motion(&model);
+		animation_library.add_animation("RESET", &reset);
+
 		return animation_library;
+	}
+	
+	pub fn create_reset_motion(&self, model: &Gd<AyagamiModel>) -> Gd<Animation> {
+		let mut animation = Animation::new_gd();
+		animation.set_name("RESET");
+		animation.set_length(0.0001);
+
+		let properties = model.get_property_list();
+
+		for p in properties.iter_shared() {
+			let name: GString = p.at("name").to();
+			if name.begins_with("parameters/") || name.begins_with("parts/") {
+				let value = model.get(&name.to_string_name());
+				let track = animation.add_track(TrackType::VALUE);
+				animation.track_set_path(track, &format!(".:{}", name));
+				animation.track_insert_key(track, 0.0, &value);
+			}
+		}
+
+		animation
 	}
 
 	#[func]
