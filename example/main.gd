@@ -97,6 +97,14 @@ func _on_file_selected(path: String) -> void:
 	anim_player.remove_animation_library("")
 	anim_player.add_animation_library("", anim_library)
 	anim_player.play("RESET")
+	anim_player.animation_started.connect(
+		func (_anim):
+			%PlayButton.set_pressed_no_signal(true)
+	)
+	anim_player.animation_finished.connect(
+		func (_anim):
+			%PlayButton.set_pressed_no_signal(false)
+	)
 	
 	%MotionList.clear()
 	
@@ -108,7 +116,8 @@ func _on_file_selected(path: String) -> void:
 	for motion in anim_list:
 		%MotionList.add_item(motion)
 #endregion
-
+	await get_tree().process_frame
+	
 	%ModelInfo.text = "|".join([
 		"Model: %s" % path.get_file(),
 		"Parameters: %d" % %ParameterList.get_child_count(),
@@ -126,14 +135,14 @@ func _on_motion_list_item_selected(index: int) -> void:
 	var motion = %MotionList.get_item_text(index)
 	model.get_node("MotionController").play(motion)
 
-func _on_play_button_pressed() -> void:
+func _on_play_button_toggled(toggled_on: bool) -> void:
 	if not model:
 		return
 	var motion: AnimationPlayer = model.get_node("MotionController")
-	if motion.is_playing():
-		motion.pause()
-	else:
+	if toggled_on:
 		motion.play()
+	else:
+		motion.pause()
 
 func _on_stop_button_pressed() -> void:
 	if not model:
