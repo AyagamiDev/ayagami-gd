@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
+	AnimationPlayer, ArrayMesh, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
 };
 use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
@@ -13,7 +13,7 @@ use ayagami::core::{Collection, Item, Model, Param, Part};
 use ayagami::driver::Driver;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::mutator::IPoseMutator;
+use crate::mutator::{AyagamiOverrideMutator, IMutator, Parts, Pose};
 
 pub const PARAMETER_PREFIX: &str = "parameters/";
 pub const PART_PREFIX: &str = "parts/";
@@ -40,9 +40,9 @@ pub struct AyagamiModel {
 	mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
 
 	param_lookup: HashMap<StringName, u32>,
-	parameters: Dictionary<StringName, f32>,
+	parameters: Pose,
 	part_lookup: HashMap<StringName, u32>,
-	part_opacities: HashMap<StringName, f32>,
+	part_opacities: Parts,
 }
 
 #[godot_api]
@@ -66,16 +66,16 @@ impl AyagamiModel {
 			}
 		);
 		self.parameters = model.params().into_iter().fold(
-			Dictionary::new(),
+			Pose::new(),
 			|mut acc, p| {
 				acc.set(&format!("parameters/{}", p.id()).to_string_name(), p.default());
 				acc
 			}
 		);
 		self.part_opacities = model.parts().into_iter().fold(
-			HashMap::new(),
+			Parts::new(),
 			|mut acc, p| {
-				acc.insert(format!("parts/{}", p.id()).to_string_name(), 1.0);
+				acc.insert(&format!("parts/{}", p.id()).to_string_name(), 1.0);
 				acc
 			}
 		);
@@ -280,6 +280,48 @@ impl INode2D for AyagamiModel {
 			self.update_masks();
 			self.reorder_meshes();
 
+			// connect motion signals
+			{
+				let motion_mutator = self.base().get_node_as::<AyagamiOverrideMutator>("MotionPoseMutator");
+				let motion_animator = self.base().get_node_as::<AnimationPlayer>("MotionController");
+			
+				{
+					let mut mutator = motion_mutator.clone();
+					motion_animator.signals()
+						.animation_started()
+						.connect(
+							move |name| {
+								mutator.bind_mut().reset();
+								mutator.bind_mut().enabled = name != StringName::default();
+							}
+						);
+				}
+
+				{
+					let mut mutator = motion_mutator.clone();
+					motion_animator.signals()
+						.current_animation_changed()
+						.connect(
+							move |name| {
+								mutator.bind_mut().reset();
+								mutator.bind_mut().enabled = name != StringName::default();
+							}
+						);
+				}
+
+				{
+					let mut mutator = motion_mutator.clone();
+					motion_animator.signals()
+						.animation_finished()
+						.connect(
+							move |_| {
+								mutator.bind_mut().reset();
+								mutator.bind_mut().enabled = false;
+							}
+						);
+				}
+			}
+
 			self.base_mut().set_process_internal(true);
 		}
 		// reconnect all mask viewport textures to the dependent mesh shaders
@@ -313,17 +355,24 @@ impl INode2D for AyagamiModel {
 				return;
 			}
 
-			let state = self.parameters.duplicate_shallow();
+			let param_state = self.parameters.duplicate_shallow();
+			let part_state = self.part_opacities.duplicate_shallow();
 			for e in self.base().get_children().iter_shared() {
-				if let Ok(mut mutator) = e.try_dynify::<dyn IPoseMutator>() {
-					mutator.dyn_bind_mut().apply(state.clone());
+				if let Ok(mut mutator) = e.try_dynify::<dyn IMutator>() {
+					mutator.dyn_bind_mut().apply(param_state.clone(), part_state.clone());
 				}
 			}
 
 			let md = self.model.as_mut().unwrap();
-			for (parameter, value) in state.iter_shared() {
+			for (parameter, value) in param_state.iter_shared() {
 				if let Some(uid) = self.param_lookup.get(&parameter) {
 					let _ = md.driver.set_param(*uid, value);
+				}
+			}
+
+			for (part, value) in part_state.iter_shared() {
+				if let Some(uid) = self.part_lookup.get(&part) {
+					let _ = md.driver.set_part_opacity(*uid, value);
 				}
 			}
 
@@ -338,8 +387,6 @@ impl INode2D for AyagamiModel {
 			return false;
 		}
 
-		let md = self.model.as_mut().unwrap();
-
 		// check if attempting to set a value on the internal ayagami driver
 		if parameter.begins_with(PARAMETER_PREFIX) {
 			if self.param_lookup.contains_key(&parameter) {
@@ -349,13 +396,9 @@ impl INode2D for AyagamiModel {
 		}
 
 		if parameter.begins_with(PART_PREFIX) {
-			if let Some(uid) = self.part_lookup.get(&parameter) {
-				let r = md.driver.set_part_opacity(*uid, value.to());
-				if r.is_ok() {
-					self.part_opacities.insert(parameter, value.to());
-					self.dirty = true;
-					return true;
-				}
+			if self.part_lookup.contains_key(&parameter) {
+				self.part_opacities.set(&parameter, value.to::<f32>());
+				return true;
 			}
 		}
 		

@@ -3,7 +3,7 @@ use godot::prelude::*;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
 use crate::expression::BlendMode::{MULTIPLY, OVERRIDE};
-use crate::mutator::{Pose, IPoseMutator};
+use crate::mutator::{IMutator, Parts, Pose};
 
 const WEIGHT_PREFIX: &str = "weight/";
 pub const GROUP_PREFIX: &str = "expression_groups/";
@@ -48,8 +48,8 @@ pub struct AyagamiExpressionMutator {
 }
 
 #[godot_dyn]
-impl IPoseMutator for AyagamiExpressionMutator {
-	fn apply(&mut self, mut pose: Pose) {
+impl IMutator for AyagamiExpressionMutator {
+	fn apply(&mut self, mut pose: Pose, mut _parts: Parts) {
 		for ex in self.expressions.iter_shared() {
 			let e = ex.get_name().to_string_name();
 			let weight = self.weight.get(&e).unwrap_or_default();

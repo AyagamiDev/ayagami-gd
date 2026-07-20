@@ -25,6 +25,7 @@ func _on_file_selected(path: String) -> void:
 	for i in %ParameterList.get_children():
 		i.queue_free()
 		
+	var param_sliders = {}
 	for property in model.get_property_list():
 		if property.name.begins_with("parameters/"):
 			var container = PanelContainer.new()
@@ -52,6 +53,8 @@ func _on_file_selected(path: String) -> void:
 				func (v):
 					model.set(property.name, v)
 			)
+			
+			param_sliders[property.name] = slider
 
 			%ParameterList.add_child(container)
 #endregion
@@ -60,6 +63,7 @@ func _on_file_selected(path: String) -> void:
 	for i in %PartList.get_children():
 		i.queue_free()
 		
+	var part_sliders = {}
 	for property in model.get_property_list():
 		if property.name.begins_with("parts/"):
 			var container = PanelContainer.new()
@@ -87,6 +91,8 @@ func _on_file_selected(path: String) -> void:
 				func (v):
 					model.set(property.name, v)
 			)
+			
+			param_sliders[property.name] = slider
 
 			%PartList.add_child(container)
 #endregion
@@ -98,12 +104,31 @@ func _on_file_selected(path: String) -> void:
 	anim_player.add_animation_library("", anim_library)
 	anim_player.play("RESET")
 	anim_player.animation_started.connect(
-		func (_anim):
-			%PlayButton.set_pressed_no_signal(true)
+		func (anim):
+			var a = anim_player.get_animation(anim)
+			for track in range(a.get_track_count()):
+				var track_path: String = a.track_get_path(track).get_concatenated_subnames()
+				if track_path in part_sliders:
+					part_sliders[track_path].editable = false
+				if track_path in param_sliders:
+					param_sliders[track_path].editable = false
+	)
+	anim_player.current_animation_changed.connect(
+		func (anim):
+			%PlayButton.set_pressed_no_signal(anim != "")
+			if anim == "":
+				for p in part_sliders.values():
+					p.editable = true
+				for p in param_sliders.values():
+					p.editable = true
 	)
 	anim_player.animation_finished.connect(
 		func (_anim):
 			%PlayButton.set_pressed_no_signal(false)
+			for p in part_sliders.values():
+				p.editable = true
+			for p in param_sliders.values():
+				p.editable = true
 	)
 	
 	%MotionList.clear()
@@ -123,7 +148,7 @@ func _on_file_selected(path: String) -> void:
 	
 	var exp_controller: AyagamiExpressionMutator = model.get_node("ExpressionController")
 	var exp_library = AyagamiLoader.load_expression_library(path.get_base_dir(), true)
-	var expressions = exp_library.keys()
+	var expressions = exp_library.keys() as Array[AyagamiExpression]
 	exp_controller.expressions = expressions
 	
 	expressions.sort_custom(

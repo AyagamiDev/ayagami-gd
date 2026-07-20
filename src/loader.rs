@@ -16,6 +16,7 @@ use ayagami::core::{
 use crate::expression::{AyagamiExpression, AyagamiExpressionMutator, AyagamiExpressionTrack};
 use crate::importer::EXPRESSION_EXTENSION;
 use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX};
+use crate::mutator::AyagamiOverrideMutator;
 
 fn shader_material( s: &str ) -> Gd<ShaderMaterial> {
 	let mut rl = ResourceLoader::singleton();
@@ -95,11 +96,6 @@ impl AyagamiLoader {
 		mask_group.set_name("Masks");
 		scene.add_child(&mask_group);
 		mask_group.set_owner(&scene);
-
-		let mut motion_controller = AnimationPlayer::new_alloc();
-		motion_controller.set_name("MotionController");
-		scene.add_child(&motion_controller);
-		motion_controller.set_owner(&scene);
 
 		let mut expression_controller = AyagamiExpressionMutator::new_alloc();
 		expression_controller.set_name("ExpressionController");
@@ -295,10 +291,24 @@ impl AyagamiLoader {
 			y: canvas_size.y as i32,
 		});
 
-		let mut animation_library = AnimationLibrary::new_gd();
-		let reset = self.create_reset_motion(&scene);
-		animation_library.add_animation("RESET", &reset);
-		motion_controller.add_animation_library("", &animation_library);
+		// setup animation player
+		{
+			let mut motion_mutator = AyagamiOverrideMutator::new_alloc();
+			motion_mutator.set_name("MotionPoseMutator");
+			scene.add_child(&motion_mutator);
+			motion_mutator.set_owner(&scene);
+
+			let mut motion_controller = AnimationPlayer::new_alloc();
+			motion_controller.set_name("MotionController");
+			scene.add_child(&motion_controller);
+			motion_controller.set_root(&"../MotionPoseMutator".to_node_path());
+			motion_controller.set_owner(&scene);
+
+			let mut animation_library = AnimationLibrary::new_gd();
+			let reset = self.create_reset_motion(&scene);
+			animation_library.add_animation("RESET", &reset);
+			motion_controller.add_animation_library("", &animation_library);
+		}
 
 		scene
 	}
@@ -538,7 +548,7 @@ impl AyagamiLoader {
 						.map(|v| v.get_path().to_string())
 				)
 				.common_prefix()
-				.unwrap()
+				.unwrap_or_default()
 				.to_gstring();
 			for e in expressions.iter_shared() {
 				let resource_path = e.get_path().get_base_dir();
