@@ -9,6 +9,7 @@ use crate::importer::*;
 
 struct AyagamiExtension;
 
+pub mod mutator;
 pub mod model;
 pub mod expression;
 pub mod loader;
@@ -20,6 +21,7 @@ struct AyagamiPlugin {
     base: Base<EditorPlugin>,
     model_importer: Gd<AyagamiImporter>,
     motion_importer: Gd<AyagamiMotionImporter>,
+    expression_importer: Gd<AyagamiExpressionImporter>,
 }
 
 #[godot_api]
@@ -36,6 +38,12 @@ impl IEditorPlugin for AyagamiPlugin {
             self.motion_importer = plugin.clone();
             self.base_mut().add_import_plugin(&plugin);
         }
+
+        {
+            let plugin: Gd<AyagamiExpressionImporter> = AyagamiExpressionImporter::new_gd();
+            self.expression_importer = plugin.clone();
+            self.base_mut().add_import_plugin(&plugin);
+        }
     }
 
     fn exit_tree(&mut self) {
@@ -46,6 +54,11 @@ impl IEditorPlugin for AyagamiPlugin {
 
         {
             let plugin = self.motion_importer.clone();
+            self.base_mut().remove_import_plugin(&plugin);
+        }
+
+        {
+            let plugin = self.expression_importer.clone();
             self.base_mut().remove_import_plugin(&plugin);
         }
     }

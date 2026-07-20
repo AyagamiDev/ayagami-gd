@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use fastxfix::CommonStr;
 use glob::glob;
 use godot::classes::animation::{LoopMode, TrackType};
 use godot::classes::mesh::PrimitiveType;
@@ -12,8 +13,9 @@ use ayagami::core::{
 	ArtMesh, BlendMode, Collection, Item, Model
 };
 
-use crate::expression::AyagamiExpression;
-use crate::model::AyagamiModel;
+use crate::expression::{AyagamiExpression, AyagamiExpressionMutator, AyagamiExpressionTrack};
+use crate::importer::EXPRESSION_EXTENSION;
+use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX};
 
 fn shader_material( s: &str ) -> Gd<ShaderMaterial> {
 	let mut rl = ResourceLoader::singleton();
@@ -34,8 +36,10 @@ pub struct AyagamiLoader;
 impl AyagamiLoader {
 	#[func]
 	pub fn load_model(&self, file_path: GString) -> Gd<AyagamiModel> {
-		let json = FileAccess::get_file_as_string(&file_path);
-		let settings: VarDictionary = Json::parse_string(&json).to();
+		let settings: VarDictionary = {
+			let json = FileAccess::get_file_as_string(&file_path);
+			Json::parse_string(&json).to()
+		};
 		let base_path = file_path.get_base_dir();
 
 		let file_refs: VarDictionary = settings.at("FileReferences").to();
@@ -46,23 +50,32 @@ impl AyagamiLoader {
 		let model_path = base_path.path_join(&model_file);
 		scene.set_meta("moc", &model_path.to_variant());
 
-		// build materials for each texture
-		let texture_paths: VarArray = file_refs.at("Textures").to();
-		let textures: Array<Gd<Texture2D>> = texture_paths.iter_shared().map(|t_path| {
-			let real_path = &base_path.path_join(&t_path.to_string());
-			let mut tex: Gd<Texture2D>;
-			if ResourceLoader::singleton().exists(real_path) {
-				tex = ResourceLoader::singleton().load(real_path).unwrap().cast();
-			} else {
-				let mut img = Image::load_from_file(real_path);
-				img.as_mut().unwrap().generate_mipmaps();
-				let img_tex = ImageTexture::create_from_image(img.as_ref()).unwrap();
-				tex = img_tex.upcast();
-				tex.take_over_path(real_path);
-			}
+		let display_info: VarDictionary = {
+			let fp = file_refs.at("DisplayInfo").to_string();
+			let json = FileAccess::get_file_as_string(&fp);
+			Json::parse_string(&json).try_to().unwrap_or_default()
+		};
 
-			tex
-		}).collect();
+		// build materials for each texture
+		
+		let textures: Array<Gd<Texture2D>> = {
+			let texture_paths: VarArray = file_refs.at("Textures").to();
+			texture_paths.iter_shared().map(|t_path| {
+				let real_path = &base_path.path_join(&t_path.to_string());
+				let mut tex: Gd<Texture2D>;
+				if ResourceLoader::singleton().exists(real_path) {
+					tex = ResourceLoader::singleton().load(real_path).unwrap().cast();
+				} else {
+					let mut img = Image::load_from_file(real_path);
+					img.as_mut().unwrap().generate_mipmaps();
+					let img_tex = ImageTexture::create_from_image(img.as_ref()).unwrap();
+					tex = img_tex.upcast();
+					tex.take_over_path(real_path);
+				}
+
+				tex
+			}).collect()
+		};
 
 		let shaders: Array<Gd<ShaderMaterial>> = array![
 			&shader_material("res://addons/ayagami/shaders/mix.gdshader"),
@@ -88,6 +101,11 @@ impl AyagamiLoader {
 		scene.add_child(&motion_controller);
 		motion_controller.set_owner(&scene);
 
+		let mut expression_controller = AyagamiExpressionMutator::new_alloc();
+		expression_controller.set_name("ExpressionController");
+		scene.add_child(&expression_controller);
+		expression_controller.set_owner(&scene);
+
 		let mut m_scene = scene.bind_mut();
 		m_scene.load();
 		
@@ -112,7 +130,27 @@ impl AyagamiLoader {
 
 			let vtx_count = artmesh.vertex_count();
 			let am = md.driver.artmesh_state(uid).unwrap();
-					
+			
+			let mut mesh_instance = MeshInstance2D::new_alloc();
+			mesh_instance.set_name(&id);
+			mesh_instance.set_mesh(&mesh);
+			mesh_instance.set_meta("uid", &uid.to_variant());
+			mesh_instance.set_self_modulate(Color { r: 1.0, g: 1.0, b: 1.0, a: am.visual.opacity });
+			
+			let tex_id = artmesh.texture() as usize;
+			let tex = textures.get(tex_id).unwrap();
+			mesh_instance.set_texture(&tex);
+
+			let mat = match artmesh.blend_mode() {
+				BlendMode::Normal => Some(shaders.at(0)),
+				BlendMode::Add => Some(shaders.at(1)),
+				BlendMode::Multiply => Some(shaders.at(2))
+			};
+			mesh_instance.set_material(mat.as_ref());
+
+			mesh_group.add_child(&mesh_instance);
+			meshes.insert(artmesh.uid(), mesh_instance);
+
 			// must have enough vertices to create a tri
 			if vtx_count < 3 {
 				continue;
@@ -175,26 +213,6 @@ impl AyagamiLoader {
 
 			let aabb = mesh.get_aabb();
 			mesh.set_custom_aabb(aabb);
-
-			let mut mesh_instance = MeshInstance2D::new_alloc();
-			mesh_instance.set_name(&id);
-			mesh_instance.set_mesh(&mesh);
-			mesh_instance.set_meta("uid", &uid.to_variant());
-			mesh_instance.set_self_modulate(Color { r: 1.0, g: 1.0, b: 1.0, a: am.visual.opacity });
-			
-			let tex_id = artmesh.texture() as usize;
-			let tex = textures.get(tex_id).unwrap();
-			mesh_instance.set_texture(&tex);
-
-			let mat = match artmesh.blend_mode() {
-				BlendMode::Normal => Some(shaders.at(0)),
-				BlendMode::Add => Some(shaders.at(1)),
-				BlendMode::Multiply => Some(shaders.at(2))
-			};
-			mesh_instance.set_material(mat.as_ref());
-
-			mesh_group.add_child(&mesh_instance);
-			meshes.insert(artmesh.uid(), mesh_instance);
 		}
 		
 		// make masks and attach them to art meshes
@@ -443,7 +461,7 @@ impl AyagamiLoader {
 
 		return animation_library;
 	}
-	
+
 	pub fn create_reset_motion(&self, model: &Gd<AyagamiModel>) -> Gd<Animation> {
 		let mut animation = Animation::new_gd();
 		animation.set_name("RESET");
@@ -453,7 +471,7 @@ impl AyagamiLoader {
 
 		for p in properties.iter_shared() {
 			let name: GString = p.at("name").to();
-			if name.begins_with("parameters/") || name.begins_with("parts/") {
+			if name.begins_with(PARAMETER_PREFIX) || name.begins_with(PART_PREFIX) {
 				let value = model.get(&name.to_string_name());
 				let track = animation.add_track(TrackType::VALUE);
 				animation.track_set_path(track, &format!(".:{}", name));
@@ -465,7 +483,78 @@ impl AyagamiLoader {
 	}
 
 	#[func]
-	pub fn load_expression(&self, file_path: GString) -> Gd<AyagamiExpression> {
-		Gd::default()
+	pub fn load_expression(&self, file_path: GString) -> Option<Gd<AyagamiExpression>> {
+		let json = FileAccess::get_file_as_string(&file_path);
+		let data: VarDictionary = Json::parse_string(&json).to();
+
+		let mut expression = AyagamiExpression::new_gd();
+
+		expression.bind_mut().tracks = Array::from_iter(
+			data.get("Parameters")
+				.map_or(VarArray::default(), |p| p.to::<VarArray>())
+				.iter_shared()
+				.map(|p| p.to::<VarDictionary>())
+				.map(|track_data| {
+					let mut track = AyagamiExpressionTrack::new_gd();
+					track.bind_mut().property_name = format!("{}{}", PARAMETER_PREFIX, track_data.get("Id").unwrap().stringify()).to_string_name();
+					track.bind_mut().blend_mode = match track_data.get("Blend").map_or(GString::default(), |v| v.to()).to_string().as_str() {
+						"Multiply" => crate::expression::BlendMode::ADD,
+						"Override" => crate::expression::BlendMode::OVERRIDE,
+						_ => crate::expression::BlendMode::ADD,
+					};
+					track.bind_mut().amount = track_data.get("Value").unwrap().to();
+
+					track
+				})
+		);
+
+		let name = file_path.get_file().trim_suffix(EXPRESSION_EXTENSION).left(-1);
+		expression.set_name(&name);
+		expression.set_path(&file_path);
+		
+		Some(expression)
 	}
+
+
+	#[func]
+	pub fn load_expression_library(&self, path: GString, #[opt(default = false)] group_by_folder: bool) -> Dictionary<Gd<AyagamiExpression>, StringName> {
+		let base_path: GString = ProjectSettings::singleton().globalize_path(&path);
+		
+		let expressions: Array<Gd<AyagamiExpression>> = glob(&format!("{}/**/*.{}", base_path.to_string(), EXPRESSION_EXTENSION))
+			.unwrap()
+			.filter_map(Result::ok)
+			.flat_map(|path| {
+				let gpath = path.display().to_string().to_gstring();
+				self.load_expression(gpath)
+			})
+			.collect();
+
+		let mut library = Dictionary::new();
+
+		if group_by_folder {
+			let root = Vec::from_iter(
+					expressions
+						.iter_shared()
+						.map(|v| v.get_path().to_string())
+				)
+				.common_prefix()
+				.unwrap()
+				.to_gstring();
+			for e in expressions.iter_shared() {
+				let resource_path = e.get_path().get_base_dir();
+				let mut group = resource_path.trim_prefix(&root);
+				if group == resource_path {
+					group = "".to_gstring();
+				}
+				library.set(&e, &group.to_string_name());
+			}
+		} else {
+			for e in expressions.iter_shared() {
+				library.set(&e, &"".to_string_name());
+			}
+		}
+
+		library
+	}
+	
 }

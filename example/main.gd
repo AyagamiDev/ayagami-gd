@@ -37,7 +37,7 @@ func _on_file_selected(path: String) -> void:
 			var label = Label.new()
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			label.clip_text = true
-			label.text = (property.name as String).right(-len("parameters/"))
+			label.text = (property.name as String).trim_prefix("parameters/")
 			layout.add_child(label)
 
 			var slider = HSlider.new()
@@ -72,7 +72,7 @@ func _on_file_selected(path: String) -> void:
 			var label = Label.new()
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			label.clip_text = true
-			label.text = (property.name as String).right(-len("parts/"))
+			label.text = (property.name as String).trim_prefix("parts/")
 			layout.add_child(label)
 
 			var slider = HSlider.new()
@@ -115,6 +115,63 @@ func _on_file_selected(path: String) -> void:
 	)
 	for motion in anim_list:
 		%MotionList.add_item(motion)
+#endregion
+
+#region Expressions
+	for i in %ExpressionList.get_children():
+		i.queue_free()
+	
+	var exp_controller: AyagamiExpressionMutator = model.get_node("ExpressionController")
+	var exp_library = AyagamiLoader.load_expression_library(path.get_base_dir(), true)
+	var expressions = exp_library.keys()
+	exp_controller.expressions = expressions
+	
+	expressions.sort_custom(
+		func (e, _e):
+			return exp_library[e] == ""
+	)
+	var group = ""
+	var btn_group = null
+	for e in expressions:
+		if group != exp_library[e]:
+			group = exp_library[e]
+			var l = Label.new()
+			l.text = group
+			%ExpressionList.add_child(l)
+			btn_group = ButtonGroup.new()
+			btn_group.allow_unpress = true
+		
+		exp_controller.set("expression_groups/%s" % e.get_name(), group)
+		
+		var ename = e.get_name()
+		
+		var row = HBoxContainer.new()
+		var btn = CheckBox.new()
+		btn.button_group = btn_group
+		btn.text = ename
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(btn)
+
+		var duration = SpinBox.new()
+		duration.step = 0.01
+		duration.min_value = 0
+		duration.max_value = 5.0
+		duration.value = 0.5
+		duration.custom_minimum_size = Vector2i(64, 0)
+		row.add_child(duration)
+		
+		btn.pressed.connect(
+			func ():
+				var toggled = btn.button_pressed
+				exp_controller.create_tween().tween_property(
+					exp_controller,
+					"weight/%s" % e.get_name(),
+					1.0 if toggled else 0.0,
+					duration.value
+				)
+		)
+		
+		%ExpressionList.add_child(row)
 #endregion
 	await get_tree().process_frame
 	

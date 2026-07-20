@@ -13,6 +13,11 @@ use ayagami::core::{Collection, Item, Model, Param, Part};
 use ayagami::driver::Driver;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
+use crate::mutator::IPoseMutator;
+
+pub const PARAMETER_PREFIX: &str = "parameters/";
+pub const PART_PREFIX: &str = "parts/";
+
 pub struct LoadedModel<T: Model, R: AsRef<T>> {
 	pub model: R,
 	pub driver: Driver<T>,
@@ -35,7 +40,7 @@ pub struct AyagamiModel {
 	mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
 
 	param_lookup: HashMap<StringName, u32>,
-	parameters: HashMap<StringName, f32>,
+	parameters: Dictionary<StringName, f32>,
 	part_lookup: HashMap<StringName, u32>,
 	part_opacities: HashMap<StringName, f32>,
 }
@@ -61,9 +66,9 @@ impl AyagamiModel {
 			}
 		);
 		self.parameters = model.params().into_iter().fold(
-			HashMap::new(),
+			Dictionary::new(),
 			|mut acc, p| {
-				acc.insert(format!("parameters/{}", p.id()).to_string_name(), p.default());
+				acc.set(&format!("parameters/{}", p.id()).to_string_name(), p.default());
 				acc
 			}
 		);
@@ -128,7 +133,7 @@ impl AyagamiModel {
 			let verts = m.vertices;
 			let count = verts.len();
 
-			if (count < 3) {
+			if count < 3 {
 				mesh_instance.set_visible(false);
 				continue;
 			}
@@ -269,12 +274,13 @@ impl INode2D for AyagamiModel {
 					acc.insert(n.get_name(), meshes);
 					acc
 				}
-			);			
+			);
 
 			self.update_meshes(true);
 			self.update_masks();
 			self.reorder_meshes();
-			
+
+			self.base_mut().set_process_internal(true);
 		}
 		// reconnect all mask viewport textures to the dependent mesh shaders
 		// this is necessary because Viewport texture paths are relative to the absolute scene tree
@@ -300,22 +306,31 @@ impl INode2D for AyagamiModel {
 			);
 			*/
 		}
-	}
 
-	fn process(&mut self, _delta: f32) {
-		if !self.is_loaded() {
-			return;
+		// apply pose mutators to parameters and send to driver
+		if what == CanvasItemNotification::INTERNAL_PROCESS {
+			if !self.is_loaded() {
+				return;
+			}
+
+			let state = self.parameters.duplicate_shallow();
+			for e in self.base().get_children().iter_shared() {
+				if let Ok(mut mutator) = e.try_dynify::<dyn IPoseMutator>() {
+					mutator.dyn_bind_mut().apply(state.clone());
+				}
+			}
+
+			let md = self.model.as_mut().unwrap();
+			for (parameter, value) in state.iter_shared() {
+				if let Some(uid) = self.param_lookup.get(&parameter) {
+					let _ = md.driver.set_param(*uid, value);
+				}
+			}
+
+			self.update_meshes(false);
+			self.update_masks();
+			self.reorder_meshes();
 		}
-
-		if !self.dirty {
-			return;
-		}
-
-		self.update_meshes(false);
-		self.update_masks();
-		self.reorder_meshes();
-
-		self.dirty = false;
 	}
 
 	fn on_set(&mut self, parameter: StringName, value: Variant) -> bool {
@@ -326,18 +341,14 @@ impl INode2D for AyagamiModel {
 		let md = self.model.as_mut().unwrap();
 
 		// check if attempting to set a value on the internal ayagami driver
-		if parameter.begins_with("parameters/") {
-			if let Some(uid) = self.param_lookup.get(&parameter) {
-				let r = md.driver.set_param(*uid, value.to());
-				if r.is_ok() {
-					self.parameters.insert(parameter, value.to());
-					self.dirty = true;
-					return true;
-				}
+		if parameter.begins_with(PARAMETER_PREFIX) {
+			if self.param_lookup.contains_key(&parameter) {
+				self.parameters.set(&parameter, value.to::<f32>());
+				return true;
 			}
 		}
 
-		if parameter.begins_with("parts/") {
+		if parameter.begins_with(PART_PREFIX) {
 			if let Some(uid) = self.part_lookup.get(&parameter) {
 				let r = md.driver.set_part_opacity(*uid, value.to());
 				if r.is_ok() {
@@ -356,13 +367,13 @@ impl INode2D for AyagamiModel {
 			return None;
 		}
 
-		if parameter.begins_with("parameters/") {
+		if parameter.begins_with(PARAMETER_PREFIX) {
 			if let Some(value) = self.parameters.get(&parameter) {
 				return Some(value.to_variant());
 			}
 		}
 
-		if parameter.begins_with("parts/") {
+		if parameter.begins_with(PART_PREFIX) {
 			if let Some(value) = self.part_opacities.get(&parameter) {
 				return Some(value.to_variant());
 			}
@@ -386,7 +397,7 @@ impl INode2D for AyagamiModel {
 			custom_params.push(PropertyInfo {
 				variant_type: VariantType::FLOAT,
 				class_name: ClassId::none().to_string_name(),
-				property_name: format!("parameters/{}", param.id()).to_string_name(),
+				property_name: format!("{}{}", PARAMETER_PREFIX, param.id()).to_string_name(),
 				hint_info: PropertyHintInfo {
 					hint: PropertyHint::RANGE,
 					hint_string: format!("{},{}", param.min(), param.max()).to_gstring(),
@@ -400,7 +411,7 @@ impl INode2D for AyagamiModel {
 			custom_params.push(PropertyInfo {
 				variant_type: VariantType::FLOAT,
 				class_name: ClassId::none().to_string_name(),
-				property_name: format!("parts/{}", part.id()).to_string_name(),
+				property_name: format!("{}{}", PART_PREFIX, part.id()).to_string_name(),
 				hint_info: PropertyHintInfo {
 					hint: PropertyHint::RANGE,
 					hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
@@ -417,7 +428,7 @@ impl INode2D for AyagamiModel {
 			return None;
 		}
 
-		if property.begins_with("parameters/") {
+		if property.begins_with(PARAMETER_PREFIX) {
 			if let Some(uid) = self.param_lookup.get(&property) {
 				let m = self.model.as_ref().unwrap();
 				let md = &m.model;
@@ -427,7 +438,7 @@ impl INode2D for AyagamiModel {
 			}
 		}
 
-		if property.begins_with("parts/") {
+		if property.begins_with(PART_PREFIX) {
 			return Some(1.0.to_variant());
 		}
 
