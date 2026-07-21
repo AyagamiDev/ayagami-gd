@@ -7,11 +7,11 @@ Features
 - loading `.model3.json` at runtime as Scenes
 - importing `.motion3.json` as `Animation` resources
 - importing models with motion libraries, consisting of all path relative animations
+- import `.exp3.json` expressions
+- control expressions with tweenable weights or groupable toggle states
 
 ## TODO
-
-- [ ] Import `.exp3.json` expressions
-- [ ] Expression Controller
+- physics
 
 ## Correct Rendering in Godot
 

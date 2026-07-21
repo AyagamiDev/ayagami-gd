@@ -156,7 +156,7 @@ func _on_file_selected(path: String) -> void:
 			return exp_library[e] == ""
 	)
 	var group = ""
-	var btn_group = null
+	var btn_group: ButtonGroup = null
 	for e in expressions:
 		if group != exp_library[e]:
 			group = exp_library[e]
@@ -183,18 +183,21 @@ func _on_file_selected(path: String) -> void:
 		duration.max_value = 5.0
 		duration.value = 0.5
 		duration.custom_minimum_size = Vector2i(64, 0)
+		btn.set_meta("spinner", duration)
 		row.add_child(duration)
 		
-		btn.pressed.connect(
-			func ():
-				var toggled = btn.button_pressed
-				exp_controller.create_tween().tween_property(
-					exp_controller,
-					"weight/%s" % e.get_name(),
-					1.0 if toggled else 0.0,
-					duration.value
-				)
-		)
+		var toggler = func (toggled: bool, group: ButtonGroup):
+			var timing: float = duration.value
+			if group and group.get_pressed_button() != null:
+				timing = group.get_pressed_button().get_meta("spinner").value
+			exp_controller.create_tween().tween_property(
+				exp_controller,
+				"weight/%s" % e.get_name(),
+				1.0 if toggled else 0.0,
+				timing
+			)
+			
+		btn.toggled.connect(toggler.bind(btn_group))
 		
 		%ExpressionList.add_child(row)
 #endregion
