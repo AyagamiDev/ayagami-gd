@@ -11,6 +11,7 @@ struct AyagamiExtension;
 
 pub mod mutator;
 pub mod model;
+pub mod motion;
 pub mod expression;
 pub mod loader;
 pub mod importer;

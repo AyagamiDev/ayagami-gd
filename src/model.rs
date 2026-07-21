@@ -280,48 +280,6 @@ impl INode2D for AyagamiModel {
 			self.update_masks();
 			self.reorder_meshes();
 
-			// connect motion signals
-			{
-				let motion_mutator = self.base().get_node_as::<AyagamiOverrideMutator>("MotionPoseMutator");
-				let motion_animator = self.base().get_node_as::<AnimationPlayer>("MotionController");
-			
-				{
-					let mut mutator = motion_mutator.clone();
-					motion_animator.signals()
-						.animation_started()
-						.connect(
-							move |name| {
-								mutator.bind_mut().reset();
-								mutator.bind_mut().enabled = name != StringName::default();
-							}
-						);
-				}
-
-				{
-					let mut mutator = motion_mutator.clone();
-					motion_animator.signals()
-						.current_animation_changed()
-						.connect(
-							move |name| {
-								mutator.bind_mut().reset();
-								mutator.bind_mut().enabled = name != StringName::default();
-							}
-						);
-				}
-
-				{
-					let mut mutator = motion_mutator.clone();
-					motion_animator.signals()
-						.animation_finished()
-						.connect(
-							move |_| {
-								mutator.bind_mut().reset();
-								mutator.bind_mut().enabled = false;
-							}
-						);
-				}
-			}
-
 			self.base_mut().set_process_internal(true);
 		}
 		// reconnect all mask viewport textures to the dependent mesh shaders
