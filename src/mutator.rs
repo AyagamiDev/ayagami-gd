@@ -6,7 +6,7 @@ pub type Pose = Dictionary<StringName, f32>;
 pub type Parts = Dictionary<StringName, f32>;
 
 pub trait IMutator {
-	fn apply(&mut self, _pose: Pose, _parts: Parts) {}
+	fn apply(&mut self, _pose: Pose, _parts: Parts);
 }
 
 #[derive(GodotClass)]
@@ -123,7 +123,7 @@ impl INode for AyagamiOverrideMutator {
         return Vec::default();
 	}
 
-	fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
+	fn on_property_get_revert(&self, _property: StringName) -> Option<Variant> {
 		return None;
 	}
 }

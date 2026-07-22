@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::classes::{
-	AnimationPlayer, ArrayMesh, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
+	ArrayMesh, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
 };
 use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
@@ -13,7 +13,7 @@ use ayagami::core::{Collection, Item, Model, Param, Part};
 use ayagami::driver::Driver;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::mutator::{AyagamiOverrideMutator, IMutator, Parts, Pose};
+use crate::mutator::{IMutator, Parts, Pose};
 
 pub const PARAMETER_PREFIX: &str = "parameters/";
 pub const PART_PREFIX: &str = "parts/";
@@ -61,28 +61,28 @@ impl AyagamiModel {
 		self.param_lookup = model.params().into_iter().fold(
 			HashMap::new(),
 			|mut acc, p| {
-				acc.insert(format!("parameters/{}", p.id()).to_string_name(), p.uid());
+				acc.insert(format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), p.uid());
 				acc
 			}
 		);
 		self.parameters = model.params().into_iter().fold(
 			Pose::new(),
 			|mut acc, p| {
-				acc.set(&format!("parameters/{}", p.id()).to_string_name(), p.default());
+				acc.set(&format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), p.default());
 				acc
 			}
 		);
 		self.part_opacities = model.parts().into_iter().fold(
 			Parts::new(),
 			|mut acc, p| {
-				acc.insert(&format!("parts/{}", p.id()).to_string_name(), 1.0);
+				acc.set(&format!("{}{}", PART_PREFIX, p.id()).to_string_name(), 1.0);
 				acc
 			}
 		);
 		self.part_lookup = model.parts().into_iter().fold(
 			HashMap::new(),
 			|mut acc, p| {
-				acc.insert(format!("parts/{}", p.id()).to_string_name(), p.uid());
+				acc.insert(format!("{}{}", PART_PREFIX, p.id()).to_string_name(), p.uid());
 				acc
 			}
 		);

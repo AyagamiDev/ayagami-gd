@@ -6,7 +6,7 @@ use godot::classes::animation::{LoopMode, TrackType};
 use godot::classes::mesh::PrimitiveType;
 use godot::prelude::*;
 use godot::classes::{
-	Animation, AnimationLibrary, AnimationPlayer, ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ProjectSettings, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
+	Animation, AnimationLibrary, ArrayMesh, FileAccess, Image, ImageTexture, Json, MeshInstance2D, ProjectSettings, ResourceLoader, Shader, ShaderMaterial, SubViewport, Texture2D, ViewportTexture, mesh
 };
 
 use ayagami::core::{
@@ -17,7 +17,6 @@ use crate::expression::{AyagamiExpression, AyagamiExpressionMutator, AyagamiExpr
 use crate::importer::EXPRESSION_EXTENSION;
 use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX};
 use crate::motion::AyagamiMotionMutator;
-use crate::mutator::AyagamiOverrideMutator;
 
 fn shader_material( s: &str ) -> Gd<ShaderMaterial> {
 	let mut rl = ResourceLoader::singleton();
