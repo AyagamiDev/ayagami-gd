@@ -37,32 +37,25 @@ pub struct AyagamiLoader;
 impl AyagamiLoader {
 	#[func]
 	pub fn load_model(&self, file_path: GString) -> Gd<AyagamiModel> {
-		let settings: VarDictionary = {
+		let settings: ayagami::meta::Model3 = {
 			let json = FileAccess::get_file_as_string(&file_path);
-			Json::parse_string(&json).to()
+			serde_json::from_str(&json.to_string()).expect("unable to parse model3 json")
 		};
 		let base_path = file_path.get_base_dir();
 
-		let file_refs: VarDictionary = settings.at("FileReferences").to();
 		let mut scene = AyagamiModel::new_alloc();
 		scene.set_meta("basepath", &base_path.to_variant());
 
-		let model_file = file_refs.at("Moc").to_string();
+		let model_file = settings.file_references.moc;
 		let model_path = base_path.path_join(&model_file);
 		scene.set_meta("moc", &model_path.to_variant());
 
-		let display_info: VarDictionary = {
-			let fp = file_refs.at("DisplayInfo").to_string();
-			let json = FileAccess::get_file_as_string(&fp);
-			Json::parse_string(&json).try_to().unwrap_or_default()
-		};
-
 		// build materials for each texture
 		
-		let textures: Array<Gd<Texture2D>> = {
-			let texture_paths: VarArray = file_refs.at("Textures").to();
-			texture_paths.iter_shared().map(|t_path| {
-				let real_path = &base_path.path_join(&t_path.to_string());
+		let textures: Vec<Gd<Texture2D>> = settings.file_references.textures
+			.iter()
+			.map(|t_path| {
+				let real_path = &base_path.path_join(t_path);
 				let mut tex: Gd<Texture2D>;
 				if ResourceLoader::singleton().exists(real_path) {
 					tex = ResourceLoader::singleton().load(real_path).unwrap().cast();
@@ -75,8 +68,8 @@ impl AyagamiLoader {
 				}
 
 				tex
-			}).collect()
-		};
+			})
+			.collect();
 
 		let shaders: Array<Gd<ShaderMaterial>> = array![
 			&shader_material("res://addons/ayagami/shaders/mix.gdshader"),
@@ -135,7 +128,7 @@ impl AyagamiLoader {
 			
 			let tex_id = artmesh.texture() as usize;
 			let tex = textures.get(tex_id).unwrap();
-			mesh_instance.set_texture(&tex);
+			mesh_instance.set_texture(tex);
 
 			let mat = match artmesh.blend_mode() {
 				BlendMode::Normal => Some(shaders.at(0)),
