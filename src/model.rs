@@ -348,15 +348,19 @@ impl INode2D for AyagamiModel {
 		// check if attempting to set a value on the internal ayagami driver
 		if parameter.begins_with(PARAMETER_PREFIX) {
 			if self.param_lookup.contains_key(&parameter) {
-				self.parameters.set(&parameter, value.to::<f32>());
-				return true;
+				if let Ok(v) = value.try_to::<f32>() {
+					self.parameters.set(&parameter, v);
+					return true;
+				}
 			}
 		}
 
 		if parameter.begins_with(PART_PREFIX) {
 			if self.part_lookup.contains_key(&parameter) {
-				self.part_opacities.set(&parameter, value.to::<f32>());
-				return true;
+				if let Ok(v) = value.try_to::<f32>() {
+					self.part_opacities.set(&parameter, v);
+					return true;
+				}
 			}
 		}
 		
