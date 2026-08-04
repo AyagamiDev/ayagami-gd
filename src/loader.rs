@@ -370,9 +370,9 @@ impl AyagamiLoader {
 					1 => {										
 						let p0_t: f64 = segments.at(s_idx - 2).to();
 						let p0_v: f32 = segments.at(s_idx - 1).to();
-						let p1_t: f64 = segments.at(s_idx + 1).to();
+						let _p1_t: f64 = segments.at(s_idx + 1).to();
 						let p1_v: f32 = segments.at(s_idx + 2).to();
-						let p2_t: f64 = segments.at(s_idx + 3).to();
+						let _p2_t: f64 = segments.at(s_idx + 3).to();
 						let p2_v: f32 = segments.at(s_idx + 4).to();
 						let p3_t: f64 = segments.at(s_idx + 5).to();
 						let p3_v: f32 = segments.at(s_idx + 6).to();

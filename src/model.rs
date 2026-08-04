@@ -29,6 +29,8 @@ pub struct AyagamiModel {
 	base: Base<Node2D>,
 	#[var(pub)]
 	size: Vector2i,
+	#[var(pub)]
+	origin: Vector2,
 
 	pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
 
@@ -122,6 +124,10 @@ impl AyagamiModel {
 
 		let px_size = md.model.canvas_properties().scale;
 		let origin = md.model.canvas_properties().center;
+		self.origin = Vector2 {
+			x: origin.x,
+			y: origin.y
+		};
 
 		// update mesh vertices
 		for (uid, child) in self.meshes.iter() {
