@@ -50,7 +50,7 @@ jobs:
       - name: Prepare package
         run: |
           mkdir -p pkg/addons
-          cp -r godot/addons/ayagami pkg/addons
+          cp -r addons/ayagami pkg/addons
           find artifacts/ -type f -print0 | xargs -0 cp -t "pkg/addons/ayagami/lib"
           cp LICENSE.md README.md "pkg/addons/ayagami"
       - name: Generate Release
