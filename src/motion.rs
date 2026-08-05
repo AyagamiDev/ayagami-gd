@@ -55,34 +55,38 @@ impl IAnimationPlayer for AyagamiMotionMutator {
         }
     }
 
-    fn on_set(&mut self, parameter: StringName, value: Variant) -> bool {
+    fn on_set(&mut self, property: StringName, value: Variant) -> bool {
 		// check if attempting to set a value on the internal ayagami driver
-		if parameter.begins_with(PARAMETER_PREFIX) {
-            self.parameters.set(&parameter, value.to::<f32>());
-            return true;
+		if property.begins_with(PARAMETER_PREFIX) {
+            if let Ok(v) = value.try_to::<f32>() {
+                self.parameters.set(&property, v);
+                return true;
+            }
 		}
 
-		if parameter.begins_with(PART_PREFIX) {
-            self.part_opacities.set(&parameter, value.to::<f32>());
-            return true;
+		if property.begins_with(PART_PREFIX) {
+            if let Ok(v) = value.try_to::<f32>() {
+                self.part_opacities.set(&property, v);
+                return true;
+            }
 		}
 		
 		return false;
 	}
 
-	fn on_get(&self, parameter: StringName) -> Option<Variant> {
+	fn on_get(&self, property: StringName) -> Option<Variant> {
         if let Some(parent) = self.base().get_parent() {
-            if let Ok(_) = parent.clone().try_cast::<AyagamiModel>() {
-                let value = parent.clone().get(&parameter);
-                let maybe_value = (!value.is_nil()).then_some(value);
-                if parameter.begins_with(PARAMETER_PREFIX) {
-                    return self.parameters.get(&parameter)
+            if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
+                if property.begins_with(PARAMETER_PREFIX) {
+                    let maybe_value = model.bind().parameters.get(&property).map(|v| v.to_variant());
+                    return self.parameters.get(&property)
                         .map(|v| v.to_variant())
                         .or(maybe_value);
                 }
 
-                if parameter.begins_with(PART_PREFIX) {
-                    return self.part_opacities.get(&parameter)
+                if property.begins_with(PART_PREFIX) {
+                    let maybe_value = model.bind().part_opacities.get(&property).map(|v| v.to_variant());
+                    return self.part_opacities.get(&property)
                         .map(|v| v.to_variant())
                         .or(maybe_value);
         		}
@@ -94,23 +98,36 @@ impl IAnimationPlayer for AyagamiMotionMutator {
 
 	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
         if let Some(parent) = self.base().get_parent() {
-            if let Ok(_) = parent.clone().try_cast::<AyagamiModel>() {
-                return parent.clone().get_property_list().iter_shared().fold(
-                    Vec::new(),
-                    |mut acc, property| {
-                        let name = property.at("name").stringify().to_string_name();
-                        if name.begins_with(PARAMETER_PREFIX) || name.begins_with(PART_PREFIX) {
-                            acc.push(PropertyInfo {
-                                variant_type: VariantType::FLOAT,
-                                class_name: ClassId::none().to_string_name(),
-                                property_name: name,
-                                hint_info: PropertyHintInfo::none(),
-                                usage: PropertyUsageFlags::EDITOR
-                            });
+            if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
+                let parameters = model.bind().get_parameters();
+                let parameters_iter = parameters.iter_shared().map(
+                    |property| {
+                        let name = format!("{}{}", PARAMETER_PREFIX, property).to_string_name();
+                        PropertyInfo {
+                            variant_type: VariantType::FLOAT,
+                            class_name: ClassId::none().to_string_name(),
+                            property_name: name,
+                            hint_info: PropertyHintInfo::none(),
+                            usage: PropertyUsageFlags::EDITOR
                         }
-                        acc
                     }
                 );
+                
+                let parts = model.bind().get_parts();
+                let parts_iter = parts.iter_shared().map(
+                    |part| {
+                        let name = format!("{}{}", PART_PREFIX, part).to_string_name();
+                        PropertyInfo {
+                            variant_type: VariantType::FLOAT,
+                            class_name: ClassId::none().to_string_name(),
+                            property_name: name,
+                            hint_info: PropertyHintInfo::none(),
+                            usage: PropertyUsageFlags::EDITOR
+                        }
+                    }
+                );
+
+                return parameters_iter.chain(parts_iter).collect();
             }
         }
         return Vec::default();

@@ -470,16 +470,20 @@ impl AyagamiLoader {
 		animation.set_name("RESET");
 		animation.set_length(0.0001);
 
-		let properties = model.get_property_list();
+		for p in model.bind().get_parameters().iter_shared() {
+			let name = format!("{}{}", PARAMETER_PREFIX, p).to_string_name();
+			let value = model.get(&name);
+			let track = animation.add_track(TrackType::VALUE);
+			animation.track_set_path(track, &format!(".:{}", name));
+			animation.track_insert_key(track, 0.0, &value);
+		}
 
-		for p in properties.iter_shared() {
-			let name: GString = p.at("name").to();
-			if name.begins_with(PARAMETER_PREFIX) || name.begins_with(PART_PREFIX) {
-				let value = model.get(&name.to_string_name());
-				let track = animation.add_track(TrackType::VALUE);
-				animation.track_set_path(track, &format!(".:{}", name));
-				animation.track_insert_key(track, 0.0, &value);
-			}
+		for p in model.bind().get_parts().iter_shared() {
+			let name = format!("{}{}", PART_PREFIX, p).to_string_name();
+			let value = model.get(&name.to_string_name());
+			let track = animation.add_track(TrackType::VALUE);
+			animation.track_set_path(track, &format!(".:{}", name));
+			animation.track_insert_key(track, 0.0, &value);
 		}
 
 		animation

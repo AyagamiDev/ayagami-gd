@@ -9,18 +9,26 @@ use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
 
 use ayagami::file::ParsedModel;
-use ayagami::core::{Collection, Item, Model, Param, Part};
+use ayagami::core::{Item, Model, Param, Part};
 use ayagami::driver::Driver;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
 use crate::mutator::{IMutator, Parts, Pose};
 
 pub const PARAMETER_PREFIX: &str = "parameters/";
+const PARAMETER_RANGE_SUFFIX: &str = "/range";
+const PARAMETER_DEFAULT_SUFFIX: &str = "/default";
+
 pub const PART_PREFIX: &str = "parts/";
 
 pub struct LoadedModel<T: Model, R: AsRef<T>> {
 	pub model: R,
 	pub driver: Driver<T>,
+}
+
+struct ParamMeta {
+	value_range: Vector2,
+	default_value: f32,
 }
 
 #[derive(GodotClass)]
@@ -41,10 +49,14 @@ pub struct AyagamiModel {
 	masks: Vec<Gd<SubViewport>>,
 	mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
 
+	param_names: Array<StringName>,
 	param_lookup: HashMap<StringName, u32>,
-	parameters: Pose,
+	param_details: HashMap<StringName, ParamMeta>,
+	pub parameters: Pose,
+
+	part_names: Array<StringName>,
 	part_lookup: HashMap<StringName, u32>,
-	part_opacities: Parts,
+	pub part_opacities: Parts,
 }
 
 #[godot_api]
@@ -88,6 +100,23 @@ impl AyagamiModel {
 				acc
 			}
 		);
+		self.part_names = Array::from_iter(model.parts().into_iter().map(
+			|v| v.id().to_string_name()
+		));
+
+		self.param_details = model.params().into_iter().fold(
+			HashMap::new(),
+			|mut acc, p| {
+				acc.insert(format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), ParamMeta {
+					value_range: Vector2 { x: p.min(), y: p.max() },
+					default_value: p.default(),
+				});
+				acc
+			}
+		);
+		self.param_names = Array::from_iter(model.params().into_iter().map(
+			|v| v.id().to_string_name()
+		));
 
 		let loaded = LoadedModel {
 			model,
@@ -239,6 +268,16 @@ impl AyagamiModel {
 			}
 		}
 	}
+
+	#[func]
+	pub fn get_parameters(&self) -> Array<StringName> {
+		return self.param_names.clone();
+	}
+
+	#[func]
+	pub fn get_parts(&self) -> Array<StringName> {
+		return self.part_names.clone();
+	}
 }
 
 #[godot_api]
@@ -341,25 +380,25 @@ impl INode2D for AyagamiModel {
 		}
 	}
 
-	fn on_set(&mut self, parameter: StringName, value: Variant) -> bool {
+	fn on_set(&mut self, property: StringName, value: Variant) -> bool {
 		if !self.is_loaded() {
 			return false;
 		}
 
 		// check if attempting to set a value on the internal ayagami driver
-		if parameter.begins_with(PARAMETER_PREFIX) {
-			if self.param_lookup.contains_key(&parameter) {
+		if property.begins_with(PARAMETER_PREFIX) {
+			if self.param_lookup.contains_key(&property) {
 				if let Ok(v) = value.try_to::<f32>() {
-					self.parameters.set(&parameter, v);
+					self.parameters.set(&property, v);
 					return true;
 				}
 			}
 		}
 
-		if parameter.begins_with(PART_PREFIX) {
-			if self.part_lookup.contains_key(&parameter) {
+		if property.begins_with(PART_PREFIX) {
+			if self.part_lookup.contains_key(&property) {
 				if let Ok(v) = value.try_to::<f32>() {
-					self.part_opacities.set(&parameter, v);
+					self.part_opacities.set(&property, v);
 					return true;
 				}
 			}
@@ -368,19 +407,29 @@ impl INode2D for AyagamiModel {
 		return false;
 	}
 
-	fn on_get(&self, parameter: StringName) -> Option<Variant> {
+	fn on_get(&self, property: StringName) -> Option<Variant> {
 		if !self.is_loaded() {
 			return None;
 		}
 
-		if parameter.begins_with(PARAMETER_PREFIX) {
-			if let Some(value) = self.parameters.get(&parameter) {
+		if property.begins_with(PARAMETER_PREFIX) {
+			if property.ends_with(PARAMETER_RANGE_SUFFIX) {
+				if let Some(p) = self.param_details.get(&property.trim_suffix(PARAMETER_RANGE_SUFFIX).to_string_name()) {
+					return Some(p.value_range.to_variant());
+				}
+			}
+			else if property.ends_with(PARAMETER_DEFAULT_SUFFIX) {
+				if let Some(p) = self.param_details.get(&property.trim_suffix(PARAMETER_DEFAULT_SUFFIX).to_string_name()) {
+					return Some(p.default_value.to_variant());
+				}
+			}
+			else if let Some(value) = self.parameters.get(&property) {
 				return Some(value.to_variant());
 			}
 		}
 
-		if parameter.begins_with(PART_PREFIX) {
-			if let Some(value) = self.part_opacities.get(&parameter) {
+		if property.begins_with(PART_PREFIX) {
+			if let Some(value) = self.part_opacities.get(&property) {
 				return Some(value.to_variant());
 			}
 		}
@@ -410,6 +459,20 @@ impl INode2D for AyagamiModel {
 				},
 				usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
 			});
+			custom_params.push(PropertyInfo {
+				variant_type: VariantType::VECTOR2,
+				class_name: ClassId::none().to_string_name(),
+				property_name: format!("{}{}{}", PARAMETER_PREFIX, param.id(), PARAMETER_RANGE_SUFFIX).to_string_name(),
+				hint_info: PropertyHintInfo::none(),
+				usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+			});
+			custom_params.push(PropertyInfo {
+				variant_type: VariantType::FLOAT,
+				class_name: ClassId::none().to_string_name(),
+				property_name: format!("{}{}{}", PARAMETER_PREFIX, param.id(), PARAMETER_DEFAULT_SUFFIX).to_string_name(),
+				hint_info: PropertyHintInfo::none(),
+				usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+			});
 		}
 
 		// expose driver parts
@@ -435,12 +498,8 @@ impl INode2D for AyagamiModel {
 		}
 
 		if property.begins_with(PARAMETER_PREFIX) {
-			if let Some(uid) = self.param_lookup.get(&property) {
-				let m = self.model.as_ref().unwrap();
-				let md = &m.model;
-				let params = md.params();
-				let p = params.get(*uid).unwrap();
-				return Some(p.default().to_variant());
+			if let Some(p) = self.param_details.get(&property) {
+				return Some(p.default_value.to_variant());
 			}
 		}
 

@@ -26,37 +26,38 @@ func _on_file_selected(path: String) -> void:
 		i.queue_free()
 		
 	var param_sliders = {}
-	for property in model.get_property_list():
-		if property.name.begins_with("parameters/"):
-			var container = PanelContainer.new()
-			container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for param in model.get_parameters():
+		var property = "parameters/%s" % param
+		var container = PanelContainer.new()
+		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-			var layout = VBoxContainer.new()
-			layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			container.add_child(layout)
+		var layout = VBoxContainer.new()
+		layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		container.add_child(layout)
 
-			var label = Label.new()
-			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			label.clip_text = true
-			label.text = (property.name as String).trim_prefix("parameters/")
-			layout.add_child(label)
+		var label = Label.new()
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.clip_text = true
+		label.text = param
+		layout.add_child(label)
 
-			var slider = HSlider.new()
-			slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			slider.min_value = property.hint_string.split(",")[0].to_float()
-			slider.max_value = property.hint_string.split(",")[1].to_float()
-			slider.step = 0.01
-			slider.value = model.get(property.name)
-			layout.add_child(slider)
-			
-			slider.value_changed.connect(
-				func (v):
-					model.set(property.name, v)
-			)
-			
-			param_sliders[property.name] = slider
+		var slider = HSlider.new()
+		var value_range: Vector2 = model.get("%s/range" % property)
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slider.min_value = value_range.x
+		slider.max_value = value_range.y
+		slider.step = 0.01
+		slider.value = model.get(property)
+		layout.add_child(slider)
+		
+		slider.value_changed.connect(
+			func (v):
+				model.set(property, v)
+		)
+		
+		param_sliders[property] = slider
 
-			%ParameterList.add_child(container)
+		%ParameterList.add_child(container)
 #endregion
 
 #region populate parts
@@ -64,37 +65,37 @@ func _on_file_selected(path: String) -> void:
 		i.queue_free()
 		
 	var part_sliders = {}
-	for property in model.get_property_list():
-		if property.name.begins_with("parts/"):
-			var container = PanelContainer.new()
-			container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for part in model.get_parts():
+		var property = "parts/%s" % part
+		var container = PanelContainer.new()
+		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-			var layout = VBoxContainer.new()
-			layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			container.add_child(layout)
+		var layout = VBoxContainer.new()
+		layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		container.add_child(layout)
 
-			var label = Label.new()
-			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			label.clip_text = true
-			label.text = (property.name as String).trim_prefix("parts/")
-			layout.add_child(label)
+		var label = Label.new()
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.clip_text = true
+		label.text = part
+		layout.add_child(label)
 
-			var slider = HSlider.new()
-			slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			slider.min_value = 0.0
-			slider.max_value = 1.0
-			slider.step = 0.01
-			slider.value = model.get(property.name)
-			layout.add_child(slider)
-			
-			slider.value_changed.connect(
-				func (v):
-					model.set(property.name, v)
-			)
-			
-			param_sliders[property.name] = slider
+		var slider = HSlider.new()
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slider.min_value = 0.0
+		slider.max_value = 1.0
+		slider.step = 0.01
+		slider.value = model.get(property)
+		layout.add_child(slider)
+		
+		slider.value_changed.connect(
+			func (v):
+				model.set(property, v)
+		)
+		
+		param_sliders[property] = slider
 
-			%PartList.add_child(container)
+		%PartList.add_child(container)
 #endregion
 
 #region load motions
