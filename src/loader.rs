@@ -106,6 +106,7 @@ impl AyagamiLoader {
 
 		let px_size = m.canvas_properties().scale;
 		let canvas_size = m.canvas_properties().dimensions;
+		let origin = m.canvas_properties().center;
 
 		// make all the art meshes
 		for uid in md.driver.sorted_artmeshes().into_iter() {
@@ -282,6 +283,10 @@ impl AyagamiLoader {
 		scene.bind_mut().set_size(Vector2i {
 			x: canvas_size.x as i32,
 			y: canvas_size.y as i32,
+		});
+		scene.bind_mut().set_origin(Vector2 {
+			x: origin.x,
+			y: origin.y
 		});
 
 		// setup animation player

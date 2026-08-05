@@ -123,11 +123,6 @@ impl AyagamiModel {
 		md.driver.drive(m);
 
 		let px_size = md.model.canvas_properties().scale;
-		let origin = md.model.canvas_properties().center;
-		self.origin = Vector2 {
-			x: origin.x,
-			y: origin.y
-		};
 
 		// update mesh vertices
 		for (uid, child) in self.meshes.iter() {
