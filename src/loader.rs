@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use ayagami::pose::Pose;
 use fastxfix::CommonStr;
 use glob::glob;
 use godot::classes::animation::{LoopMode, TrackType};
@@ -100,8 +101,10 @@ impl AyagamiLoader {
 		
 		let md = m_scene.model.as_mut().unwrap();
 		let m = md.model.as_ref();
+		let pose = Pose::new(m);
 
 		// update art meshes to their initial states
+		md.driver.apply_pose(&pose);
 		md.driver.drive(m);
 
 		let px_size = m.canvas_properties().scale;

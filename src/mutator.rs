@@ -1,12 +1,10 @@
 use godot::{meta::ClassId, prelude::*, register::info::{PropertyHintInfo, PropertyInfo, PropertyUsageFlags}};
 
-use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX};
-
-pub type Pose = Dictionary<StringName, f32>;
-pub type Parts = Dictionary<StringName, f32>;
+use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX, key_param, key_part};
+use ayagami::pose::{Key, Pose};
 
 pub trait IMutator {
-	fn apply(&mut self, _pose: Pose, _parts: Parts);
+	fn apply(&mut self, _pose: &mut Pose);
 }
 
 #[derive(GodotClass)]
@@ -17,15 +15,42 @@ pub struct AyagamiMutator {
 
 #[godot_dyn]
 impl IMutator for AyagamiMutator {
-	fn apply(&mut self, pose: Pose, parts: Parts) {
-		<Self>::apply(self, pose, parts);
+	fn apply(&mut self, pose: &mut Pose) {
+        let parameters = pose.iter().fold(
+            Dictionary::new(), 
+            |mut acc: Dictionary<StringName, f32>, (k, v)| {
+                match k {
+                    Key::Param(key_name) => {
+                        acc.set(&format!("{}{}", PARAMETER_PREFIX, key_name).to_string_name(), v.value);
+                    }
+                    Key::Part(key_name) => {
+                        acc.set(&format!("{}{}", PART_PREFIX, key_name).to_string_name(), v.value);
+                    }
+                }
+                acc
+            });
+		
+        <Self>::apply(self, parameters.clone());
+
+        for (k,v) in parameters.iter_shared() {
+            if k.begins_with(PARAMETER_PREFIX) {
+                pose.set(&key_param(k),v);
+            }
+            else if k.begins_with(PARAMETER_PREFIX) {
+                pose.set(&key_part(k), v);
+            }
+        }
 	}
 }
 
+// Script class for making mutators
+// because Ayagami Poses are not serializable as Variants to be exposed to the GDScript API
+// we instead pass through a Dictionary following the standard property naming pattern on models
+// to mutate the pose in the chain
 #[godot_api]
-pub impl AyagamiMutator {
+impl AyagamiMutator {
 	#[func(virtual)]
-	fn apply(&mut self, _pose: Pose, _parts: Parts) {
+	fn apply(&mut self, mut _pose: Dictionary<StringName, f32>) {
 		
 	}
 }
@@ -37,8 +62,8 @@ pub struct AyagamiOverrideMutator {
 
     #[export]
     pub enabled: bool,
-    parameters: Pose,
-    part_opacities: Parts,
+    parameters: Dictionary<StringName, f32>,
+    part_opacities: Dictionary<StringName, f32>,
 }
 
 #[godot_api]
@@ -52,10 +77,14 @@ impl AyagamiOverrideMutator {
 
 #[godot_dyn]
 impl IMutator for AyagamiOverrideMutator {
-	fn apply(&mut self, mut pose: Pose, mut parts: Parts) {
+	fn apply(&mut self, pose: &mut Pose) {
         if self.enabled {
-		    pose.extend_dictionary(&self.parameters, true);
-            parts.extend_dictionary(&self.part_opacities, true);
+            for (k, v) in self.parameters.iter_shared() {
+                pose.set(&key_param(k), v);
+            }
+            for (k, v) in self.part_opacities.iter_shared() {
+                pose.set(&key_part(k), v);
+            }
         }
 	}
 }
@@ -70,8 +99,7 @@ impl INode for AyagamiOverrideMutator {
                 return true;
             }
 		}
-
-		if property.begins_with(PART_PREFIX) {
+        else if property.begins_with(PART_PREFIX) {
             if let Ok(v) = value.try_to::<f32>() {
                 self.part_opacities.set(&property, v);
                 return true;
@@ -85,17 +113,16 @@ impl INode for AyagamiOverrideMutator {
         if let Some(parent) = self.base().get_parent() {
             if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
                 if property.begins_with(PARAMETER_PREFIX) {
-                    let maybe_value = model.bind().parameters.get(&property).map(|v| v.to_variant());
+                    let maybe_value = model.get(&property);
                     return self.parameters.get(&property)
                         .map(|v| v.to_variant())
-                        .or(maybe_value);
+                        .or((!maybe_value.is_nil()).then_some(maybe_value));
                 }
-
-                if property.begins_with(PART_PREFIX) {
-                    let maybe_value = model.bind().part_opacities.get(&property).map(|v| v.to_variant());
+                else if property.begins_with(PART_PREFIX) {
+                    let maybe_value = model.get(&property);
                     return self.part_opacities.get(&property)
                         .map(|v| v.to_variant())
-                        .or(maybe_value);
+                        .or((!maybe_value.is_nil()).then_some(maybe_value));
         		}
             }
         }
@@ -106,35 +133,24 @@ impl INode for AyagamiOverrideMutator {
 	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
         if let Some(parent) = self.base().get_parent() {
             if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
-                let parameters = model.bind().get_parameters();
-                let parameters_iter = parameters.iter_shared().map(
-                    |property| {
-                        let name = format!("{}{}", PARAMETER_PREFIX, property).to_string_name();
-                        PropertyInfo {
+                return model.bind().pose_map.iter().map(
+                    |(_, property)| match property.key.clone() {
+                        Key::Param(id) => PropertyInfo {
                             variant_type: VariantType::FLOAT,
                             class_name: ClassId::none().to_string_name(),
-                            property_name: name,
+                            property_name: format!("{}{}", PARAMETER_PREFIX, id).to_string_name(),
+                            hint_info: PropertyHintInfo::none(),
+                            usage: PropertyUsageFlags::EDITOR
+                        },
+                        Key::Part(id) => PropertyInfo {
+                            variant_type: VariantType::FLOAT,
+                            class_name: ClassId::none().to_string_name(),
+                            property_name: format!("{}{}", PART_PREFIX, id).to_string_name(),
                             hint_info: PropertyHintInfo::none(),
                             usage: PropertyUsageFlags::EDITOR
                         }
                     }
-                );
-
-                let parts = model.bind().get_parts();
-                let parts_iter = parts.iter_shared().map(
-                    |part| {
-                        let name = format!("{}{}", PART_PREFIX, part).to_string_name();
-                        PropertyInfo {
-                            variant_type: VariantType::FLOAT,
-                            class_name: ClassId::none().to_string_name(),
-                            property_name: name,
-                            hint_info: PropertyHintInfo::none(),
-                            usage: PropertyUsageFlags::EDITOR
-                        }
-                    }
-                );
-
-                return parameters_iter.chain(parts_iter).collect();
+                ).collect();
             }
         }
         return Vec::default();

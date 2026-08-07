@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use godot::meta::ClassId;
 use godot::prelude::*;
@@ -9,11 +10,12 @@ use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
 
 use ayagami::file::ParsedModel;
-use ayagami::core::{Item, Model, Param, Part};
+use ayagami::core::Model;
 use ayagami::driver::Driver;
+use ayagami::pose::{Descriptor, Key, Pose, PoseMap};
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::mutator::{IMutator, Parts, Pose};
+use crate::mutator::{IMutator};
 
 pub const PARAMETER_PREFIX: &str = "parameters/";
 const PARAMETER_RANGE_SUFFIX: &str = "/range";
@@ -21,14 +23,16 @@ const PARAMETER_DEFAULT_SUFFIX: &str = "/default";
 
 pub const PART_PREFIX: &str = "parts/";
 
+pub fn key_param<'a>(property: StringName) -> Key<'a> {
+	Key::from_param(property.trim_prefix(PARAMETER_PREFIX).to_string())
+}
+pub fn key_part<'a>(property: StringName) -> Key<'a> {
+	Key::from_part(property.trim_prefix(PART_PREFIX).to_string())
+}
+
 pub struct LoadedModel<T: Model, R: AsRef<T>> {
 	pub model: R,
 	pub driver: Driver<T>,
-}
-
-struct ParamMeta {
-	value_range: Vector2,
-	default_value: f32,
 }
 
 #[derive(GodotClass)]
@@ -49,18 +53,15 @@ pub struct AyagamiModel {
 	masks: Vec<Gd<SubViewport>>,
 	mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
 
-	param_names: Array<StringName>,
-	param_lookup: HashMap<StringName, u32>,
-	param_details: HashMap<StringName, ParamMeta>,
-	pub parameters: Pose,
-
-	part_names: Array<StringName>,
-	part_lookup: HashMap<StringName, u32>,
-	pub part_opacities: Parts,
+	pub pose: Option<Pose>,
+	pub pose_map: Arc<PoseMap>,
 }
 
 #[godot_api]
 impl AyagamiModel {
+	#[signal]
+	pub fn loaded();
+
 	fn is_loaded(&self) -> bool {
 		self.model.is_some()
 	}
@@ -70,53 +71,9 @@ impl AyagamiModel {
 		let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
 
 		let model = Box::new(ParsedModel::load(&mut f).unwrap());
+		self.pose_map = model.pose_map().clone();
+		self.pose = Some(Pose::new(&*model));
 		let driver = Driver::new(&*model.as_ref());
-
-		self.param_lookup = model.params().into_iter().fold(
-			HashMap::new(),
-			|mut acc, p| {
-				acc.insert(format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), p.uid());
-				acc
-			}
-		);
-		self.parameters = model.params().into_iter().fold(
-			Pose::new(),
-			|mut acc, p| {
-				acc.set(&format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), p.default());
-				acc
-			}
-		);
-		self.part_opacities = model.parts().into_iter().fold(
-			Parts::new(),
-			|mut acc, p| {
-				acc.set(&format!("{}{}", PART_PREFIX, p.id()).to_string_name(), 1.0);
-				acc
-			}
-		);
-		self.part_lookup = model.parts().into_iter().fold(
-			HashMap::new(),
-			|mut acc, p| {
-				acc.insert(format!("{}{}", PART_PREFIX, p.id()).to_string_name(), p.uid());
-				acc
-			}
-		);
-		self.part_names = Array::from_iter(model.parts().into_iter().map(
-			|v| v.id().to_string_name()
-		));
-
-		self.param_details = model.params().into_iter().fold(
-			HashMap::new(),
-			|mut acc, p| {
-				acc.insert(format!("{}{}", PARAMETER_PREFIX, p.id()).to_string_name(), ParamMeta {
-					value_range: Vector2 { x: p.min(), y: p.max() },
-					default_value: p.default(),
-				});
-				acc
-			}
-		);
-		self.param_names = Array::from_iter(model.params().into_iter().map(
-			|v| v.id().to_string_name()
-		));
 
 		let loaded = LoadedModel {
 			model,
@@ -271,12 +228,28 @@ impl AyagamiModel {
 
 	#[func]
 	pub fn get_parameters(&self) -> Array<StringName> {
-		return self.param_names.clone();
+		let mut arr: Vec<_> = self.pose_map.keys().filter_map(
+			|k| match k {
+				Key::Param(id) => Some(id.to_string()),
+				_ => None
+			}
+		).collect();
+		arr.sort();
+
+		Array::from_iter(arr.iter().map(|v| v.to_string_name()))
 	}
 
 	#[func]
 	pub fn get_parts(&self) -> Array<StringName> {
-		return self.part_names.clone();
+		let mut arr: Vec<_> = self.pose_map.keys().filter_map(
+			|k| match k {
+				Key::Part(id) => Some(id.to_string()),
+				_ => None
+			}
+		).collect();
+		arr.sort();
+
+		Array::from_iter(arr.iter().map(|v| v.to_string_name()))
 	}
 }
 
@@ -321,10 +294,12 @@ impl INode2D for AyagamiModel {
 			self.reorder_meshes();
 
 			self.base_mut().set_process_internal(true);
+
+			self.signals().loaded().emit();
 		}
 		// reconnect all mask viewport textures to the dependent mesh shaders
 		// this is necessary because Viewport texture paths are relative to the absolute scene tree
-		if what == CanvasItemNotification::ENTER_TREE {
+		else if what == CanvasItemNotification::ENTER_TREE {
 			let mask_group = self.base().get_node_as::<Node>("Masks");
 			for mask in mask_group.get_children().iter_shared().map(|n| n.cast::<SubViewport>()) {
 				for np in mask.get_meta("meshes").to::<VarArray>().iter_shared().map(|v| v.to::<NodePath>()) {
@@ -346,33 +321,21 @@ impl INode2D for AyagamiModel {
 			);
 			*/
 		}
-
-		// apply pose mutators to parameters and send to driver
-		if what == CanvasItemNotification::INTERNAL_PROCESS {
-			if !self.is_loaded() {
-				return;
+		// apply mutators to pose and send to driver
+		else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
+			let state = &mut Pose::with_map(self.pose_map.clone());
+			// start our output pose from base set driven by model properties
+			if let Some(pose) = &self.pose {
+				state.update(pose);
 			}
-
-			let param_state = self.parameters.duplicate_shallow();
-			let part_state = self.part_opacities.duplicate_shallow();
-			for e in self.base().get_children().iter_shared() {
-				if let Ok(mut mutator) = e.try_dynify::<dyn IMutator>() {
-					mutator.dyn_bind_mut().apply(param_state.clone(), part_state.clone());
+			
+			for child in self.base_mut().get_children().iter_shared() {
+				if let Ok(mut mutator) = child.try_dynify::<dyn IMutator>() {
+					mutator.dyn_bind_mut().apply(state);
 				}
 			}
 
-			let md = self.model.as_mut().unwrap();
-			for (parameter, value) in param_state.iter_shared() {
-				if let Some(uid) = self.param_lookup.get(&parameter) {
-					let _ = md.driver.set_param(*uid, value);
-				}
-			}
-
-			for (part, value) in part_state.iter_shared() {
-				if let Some(uid) = self.part_lookup.get(&part) {
-					let _ = md.driver.set_part_opacity(*uid, value);
-				}
-			}
+			self.model.as_mut().unwrap().driver.apply_pose(&state);
 
 			self.update_meshes(false);
 			self.update_masks();
@@ -386,24 +349,22 @@ impl INode2D for AyagamiModel {
 		}
 
 		// check if attempting to set a value on the internal ayagami driver
-		if property.begins_with(PARAMETER_PREFIX) {
-			if self.param_lookup.contains_key(&property) {
+		if let Some(pose) = self.pose.as_mut() {
+			if property.begins_with(PARAMETER_PREFIX) {
+				let key = key_param(property);
 				if let Ok(v) = value.try_to::<f32>() {
-					self.parameters.set(&property, v);
+					pose.set(&key, v);
+					return true;
+				}
+			}
+			else if property.begins_with(PART_PREFIX) {
+				let key = key_part(property);
+				if let Ok(v) = value.try_to::<f32>() {
+					pose.set(&key, v);
 					return true;
 				}
 			}
 		}
-
-		if property.begins_with(PART_PREFIX) {
-			if self.part_lookup.contains_key(&property) {
-				if let Ok(v) = value.try_to::<f32>() {
-					self.part_opacities.set(&property, v);
-					return true;
-				}
-			}
-		}
-		
 		return false;
 	}
 
@@ -414,23 +375,40 @@ impl INode2D for AyagamiModel {
 
 		if property.begins_with(PARAMETER_PREFIX) {
 			if property.ends_with(PARAMETER_RANGE_SUFFIX) {
-				if let Some(p) = self.param_details.get(&property.trim_suffix(PARAMETER_RANGE_SUFFIX).to_string_name()) {
-					return Some(p.value_range.to_variant());
+				let key = key_param(property.trim_suffix(PARAMETER_RANGE_SUFFIX).to_string_name());
+				if let Some((_, p)) = self.pose_map.get(&key) {
+					return Some(Vector2 {
+						x: p.min, y: p.max
+					}.to_variant());
 				}
 			}
 			else if property.ends_with(PARAMETER_DEFAULT_SUFFIX) {
-				if let Some(p) = self.param_details.get(&property.trim_suffix(PARAMETER_DEFAULT_SUFFIX).to_string_name()) {
-					return Some(p.default_value.to_variant());
+				let key = key_param(property.trim_suffix(PARAMETER_DEFAULT_SUFFIX).to_string_name());
+				if let Some((_, p)) = self.pose_map.get(&key) {
+					return Some(p.default.to_variant());
 				}
 			}
-			else if let Some(value) = self.parameters.get(&property) {
-				return Some(value.to_variant());
+			else {
+				let key = key_param(property);
+				if let Some(pose) = self.pose.as_ref() {
+					if let Some(value) = pose.get_flattened(&key) {
+						return Some(value.to_variant());
+					}
+				}
+				if let Some((_, p)) = self.pose_map.get(&key) {
+					return Some(p.default.to_variant());
+				}
 			}
 		}
-
-		if property.begins_with(PART_PREFIX) {
-			if let Some(value) = self.part_opacities.get(&property) {
-				return Some(value.to_variant());
+		else if property.begins_with(PART_PREFIX) {
+			let key = key_part(property);
+			if let Some(pose) = self.pose.as_ref() {
+				if let Some(value) = pose.get_flattened(&key) {
+					return Some(value.to_variant());
+				}
+			}
+			if let Some((_, p)) = self.pose_map.get(&key) {
+				return Some(p.default.to_variant());
 			}
 		}
 
@@ -438,58 +416,59 @@ impl INode2D for AyagamiModel {
 	}
 
 	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
-		let mut custom_params: Vec<PropertyInfo> = Vec::new();
-
 		if !self.is_loaded() {
-			return custom_params;
+			return Vec::new();
 		}
-
-		let md = self.model.as_ref().unwrap();
-		let m = md.model.as_ref();
 
 		// expose driver parameters as fields on the model
-		for param in m.params().into_iter() {
-			custom_params.push(PropertyInfo {
-				variant_type: VariantType::FLOAT,
-				class_name: ClassId::none().to_string_name(),
-				property_name: format!("{}{}", PARAMETER_PREFIX, param.id()).to_string_name(),
-				hint_info: PropertyHintInfo {
-					hint: PropertyHint::RANGE,
-					hint_string: format!("{},{}", param.min(), param.max()).to_gstring(),
-				},
-				usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
-			});
-			custom_params.push(PropertyInfo {
-				variant_type: VariantType::VECTOR2,
-				class_name: ClassId::none().to_string_name(),
-				property_name: format!("{}{}{}", PARAMETER_PREFIX, param.id(), PARAMETER_RANGE_SUFFIX).to_string_name(),
-				hint_info: PropertyHintInfo::none(),
-				usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-			});
-			custom_params.push(PropertyInfo {
-				variant_type: VariantType::FLOAT,
-				class_name: ClassId::none().to_string_name(),
-				property_name: format!("{}{}{}", PARAMETER_PREFIX, param.id(), PARAMETER_DEFAULT_SUFFIX).to_string_name(),
-				hint_info: PropertyHintInfo::none(),
-				usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-			});
-		}
+		let mut descriptors: Vec<&Descriptor> = self.pose_map.descriptors().collect();
+		descriptors.sort_by_key(|d| match d.key.clone() {
+			Key::Param(id) => id.to_lowercase(),
+			Key::Part(id) => id.to_lowercase(),
+		});
 
-		// expose driver parts
-		for part in m.parts().into_iter() {
-			custom_params.push(PropertyInfo {
-				variant_type: VariantType::FLOAT,
-				class_name: ClassId::none().to_string_name(),
-				property_name: format!("{}{}", PART_PREFIX, part.id()).to_string_name(),
-				hint_info: PropertyHintInfo {
-					hint: PropertyHint::RANGE,
-					hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
-				},
-				usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
-			});
-		}
-
-		custom_params
+		descriptors.into_iter().flat_map(
+			|param| match param.key.clone() {
+				Key::Param(id) => vec![
+					PropertyInfo {
+						variant_type: VariantType::FLOAT,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}", PARAMETER_PREFIX, id).to_string_name(),
+						hint_info: PropertyHintInfo {
+							hint: PropertyHint::RANGE,
+							hint_string: format!("{},{}", param.min, param.max).to_gstring(),
+						},
+						usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+					},
+					PropertyInfo {
+						variant_type: VariantType::VECTOR2,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_RANGE_SUFFIX).to_string_name(),
+						hint_info: PropertyHintInfo::none(),
+						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+					},
+					PropertyInfo {
+						variant_type: VariantType::FLOAT,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_DEFAULT_SUFFIX).to_string_name(),
+						hint_info: PropertyHintInfo::none(),
+						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+					}
+				],
+				Key::Part(id) => vec![
+					PropertyInfo {
+						variant_type: VariantType::FLOAT,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}", PART_PREFIX, id).to_string_name(),
+						hint_info: PropertyHintInfo {
+							hint: PropertyHint::RANGE,
+							hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
+						},
+						usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+					}
+				]
+			}
+		).collect()
 	}
 
 	fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
@@ -498,12 +477,12 @@ impl INode2D for AyagamiModel {
 		}
 
 		if property.begins_with(PARAMETER_PREFIX) {
-			if let Some(p) = self.param_details.get(&property) {
-				return Some(p.default_value.to_variant());
+			let key = key_param(property.clone());
+			if let Some((_, p)) = self.pose_map.get(&key) {
+				return Some(p.default.to_variant());
 			}
 		}
-
-		if property.begins_with(PART_PREFIX) {
+		else if property.begins_with(PART_PREFIX) {
 			return Some(1.0.to_variant());
 		}
 
