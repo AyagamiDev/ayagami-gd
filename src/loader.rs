@@ -297,6 +297,7 @@ impl AyagamiLoader {
 			let mut motion_controller = AyagamiMotionMutator::new_alloc();
 			motion_controller.set_name("MotionController");
 			motion_controller.set_root(&".".to_node_path());
+			motion_controller.set_deterministic(true);
 			scene.add_child(&motion_controller);
 			motion_controller.set_owner(&scene);
 
