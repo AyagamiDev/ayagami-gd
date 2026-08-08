@@ -81,7 +81,7 @@ pub struct AyagamiOverrideMutator {
 	base: Base<Node>,
 
     #[export]
-    pub enabled: bool,
+    pub weight: f32,
     parameters: Dictionary<StringName, f32>,
     part_opacities: Dictionary<StringName, f32>,
 }
@@ -98,12 +98,14 @@ impl AyagamiOverrideMutator {
 #[godot_dyn]
 impl IMutator for AyagamiOverrideMutator {
 	fn apply(&mut self, pose: &mut Pose) {
-        if self.enabled {
-            for (k, v) in self.parameters.iter_shared() {
-                pose.set(&key_param(k), v);
+        for (k, v) in self.parameters.iter_shared() {
+            if let Some(p) = pose.get_mut_flattened(&key_param(k)) {
+                *p = p.blend(&Value::opaque(v), self.weight);
             }
-            for (k, v) in self.part_opacities.iter_shared() {
-                pose.set(&key_part(k), v);
+        }
+        for (k, v) in self.part_opacities.iter_shared() {
+            if let Some(p) = pose.get_mut_flattened(&key_part(k)) {
+                *p = p.blend(&Value::opaque(v), self.weight);
             }
         }
 	}
@@ -132,18 +134,13 @@ impl INode for AyagamiOverrideMutator {
 	fn on_get(&self, property: StringName) -> Option<Variant> {
         if let Some(parent) = self.base().get_parent() {
             if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
-                if property.begins_with(PARAMETER_PREFIX) {
-                    let maybe_value = model.get(&property);
-                    return self.parameters.get(&property)
-                        .map(|v| v.to_variant())
-                        .or((!maybe_value.is_nil()).then_some(maybe_value));
+                if let Some(k) = param_to_key(property).as_ref() {
+                    if let Some(pose) = model.bind().pose.as_ref() {
+                        if let Some(v) = pose.get_flattened(k) {
+                            return Some(v.to_variant());
+                        }
+                    }
                 }
-                else if property.begins_with(PART_PREFIX) {
-                    let maybe_value = model.get(&property);
-                    return self.part_opacities.get(&property)
-                        .map(|v| v.to_variant())
-                        .or((!maybe_value.is_nil()).then_some(maybe_value));
-        		}
             }
         }
 
