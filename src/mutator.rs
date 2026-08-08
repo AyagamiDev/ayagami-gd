@@ -1,45 +1,65 @@
-use godot::{meta::ClassId, prelude::*, register::info::{PropertyHintInfo, PropertyInfo, PropertyUsageFlags}};
+use godot::prelude::*;
+use godot::meta::ClassId;
+use godot::register::info::{PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX, key_param, key_part};
-use ayagami::pose::{Key, Pose};
+use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX, key_param, key_part, param_to_key};
+use ayagami::pose::{Key, Pose, Value};
 
 pub trait IMutator {
 	fn apply(&mut self, _pose: &mut Pose);
 }
 
 #[derive(GodotClass)]
+#[class(tool, no_init, base = RefCounted)]
+pub struct AyagamiPose {
+    pose: Pose
+}
+
+#[godot_api]
+impl AyagamiPose {
+    #[func]
+    fn blend(&mut self, property: StringName, value: f32, #[opt(default = 1.0)] weight: f32) {
+        if let Some(k) = param_to_key(property).as_ref() {
+            if let Some(p) = self.pose.get_mut_flattened(k) {
+                *p = p.blend(&Value::opaque(value), weight)
+            }
+        }
+    }
+
+    #[func]
+    fn add(&mut self, property: StringName, value: f32, #[opt(default = 1.0)] weight: f32) {
+        if let Some(k) = param_to_key(property).as_ref() {
+            if let Some(p) = self.pose.get_mut_flattened(k) {
+                *p = p.add(&Value::opaque(value), weight)
+            }
+        }
+    }
+
+    #[func]
+    fn multiply(&mut self, property: StringName, value: f32, #[opt(default = 1.0)] weight: f32) {
+        if let Some(k) = param_to_key(property).as_ref() {
+            if let Some(p) = self.pose.get_mut_flattened(k) {
+                *p = p.multiply(&Value::opaque(value), weight)
+            }
+        }
+    }
+}
+
+#[derive(GodotClass)]
 #[class(tool, init, base = Node)]
 pub struct AyagamiMutator {
-	base: Base<Node>
+	base: Base<Node>,
+    #[export(range = (0.0, 1.0))]
+    #[init(val = 1.0)]
+    weight: f32
 }
 
 #[godot_dyn]
 impl IMutator for AyagamiMutator {
 	fn apply(&mut self, pose: &mut Pose) {
-        let parameters = pose.iter().fold(
-            Dictionary::new(), 
-            |mut acc: Dictionary<StringName, f32>, (k, v)| {
-                match k {
-                    Key::Param(key_name) => {
-                        acc.set(&format!("{}{}", PARAMETER_PREFIX, key_name).to_string_name(), v.value);
-                    }
-                    Key::Part(key_name) => {
-                        acc.set(&format!("{}{}", PART_PREFIX, key_name).to_string_name(), v.value);
-                    }
-                }
-                acc
-            });
-		
-        <Self>::apply(self, parameters.clone());
-
-        for (k,v) in parameters.iter_shared() {
-            if k.begins_with(PARAMETER_PREFIX) {
-                pose.set(&key_param(k),v);
-            }
-            else if k.begins_with(PARAMETER_PREFIX) {
-                pose.set(&key_part(k), v);
-            }
-        }
+        let data: Gd<AyagamiPose> = Gd::from_object(AyagamiPose { pose: pose.clone() });
+        <Self>::apply(self, data.clone());
+        pose.blend(&data.bind().pose, self.weight);
 	}
 }
 
@@ -50,7 +70,7 @@ impl IMutator for AyagamiMutator {
 #[godot_api]
 impl AyagamiMutator {
 	#[func(virtual)]
-	fn apply(&mut self, mut _pose: Dictionary<StringName, f32>) {
+	fn apply(&mut self, mut _pose: Gd<AyagamiPose>) {
 		
 	}
 }

@@ -12,7 +12,7 @@ use godot::classes::notify::CanvasItemNotification;
 use ayagami::file::ParsedModel;
 use ayagami::core::Model;
 use ayagami::driver::Driver;
-use ayagami::pose::{Descriptor, Key, Pose, PoseMap};
+use ayagami::pose::{Key, Pose, PoseMap, Value};
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
 use crate::mutator::{IMutator};
@@ -28,6 +28,11 @@ pub fn key_param<'a>(property: StringName) -> Key<'a> {
 }
 pub fn key_part<'a>(property: StringName) -> Key<'a> {
 	Key::from_part(property.trim_prefix(PART_PREFIX).to_string())
+}
+pub fn param_to_key<'a>(property: StringName) -> Option<Key<'a>> {
+	if property.begins_with(PARAMETER_PREFIX) { Some(key_param(property)) }
+	else if property.begins_with(PART_PREFIX) { Some(key_part(property)) }
+	else { None }
 }
 
 pub struct LoadedModel<T: Model, R: AsRef<T>> {
@@ -325,9 +330,8 @@ impl INode2D for AyagamiModel {
 		else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
 			let starting_pose = &mut {
 				let mut state = Pose::with_map(self.pose_map.clone());
-				if let Some(pose) = &self.pose {
-					state.update(pose);
-				}
+				let current = self.pose.as_ref().unwrap().to_owned();
+				state.update(&current);
 				state
 			};
 			
@@ -354,20 +358,10 @@ impl INode2D for AyagamiModel {
 		}
 
 		// check if attempting to set a value on the internal ayagami driver
-		if let Some(pose) = self.pose.as_mut() {
-			if property.begins_with(PARAMETER_PREFIX) {
-				let key = key_param(property);
-				if let Ok(v) = value.try_to::<f32>() {
-					pose.set(&key, v);
-					return true;
-				}
-			}
-			else if property.begins_with(PART_PREFIX) {
-				let key = key_part(property);
-				if let Ok(v) = value.try_to::<f32>() {
-					pose.set(&key, v);
-					return true;
-				}
+		if let (Some(pose), Some(key), Ok(v)) = (self.pose.as_mut(), param_to_key(property).as_ref(), value.try_to::<f32>()) {
+			if let Some(p) = pose.get_mut_flattened(key) {
+				*p = Value::opaque(v);
+				return true;
 			}
 		}
 		return false;
@@ -400,9 +394,6 @@ impl INode2D for AyagamiModel {
 						return Some(value.to_variant());
 					}
 				}
-				if let Some((_, p)) = self.pose_map.get(&key) {
-					return Some(p.default.to_variant());
-				}
 			}
 		}
 		else if property.begins_with(PART_PREFIX) {
@@ -411,9 +402,6 @@ impl INode2D for AyagamiModel {
 				if let Some(value) = pose.get_flattened(&key) {
 					return Some(value.to_variant());
 				}
-			}
-			if let Some((_, p)) = self.pose_map.get(&key) {
-				return Some(p.default.to_variant());
 			}
 		}
 
@@ -426,13 +414,7 @@ impl INode2D for AyagamiModel {
 		}
 
 		// expose driver parameters as fields on the model
-		let mut descriptors: Vec<&Descriptor> = self.pose_map.descriptors().collect();
-		descriptors.sort_by_key(|d| match d.key.clone() {
-			Key::Param(id) => id.to_lowercase(),
-			Key::Part(id) => id.to_lowercase(),
-		});
-
-		descriptors.into_iter().flat_map(
+		self.pose_map.descriptors().into_iter().flat_map(
 			|param| match param.key.clone() {
 				Key::Param(id) => vec![
 					PropertyInfo {

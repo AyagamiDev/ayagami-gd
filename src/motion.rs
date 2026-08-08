@@ -1,7 +1,7 @@
 use godot::{classes::{AnimationPlayer, IAnimationPlayer, notify::NodeNotification}, meta::ClassId, prelude::*, register::info::{PropertyHintInfo, PropertyInfo, PropertyUsageFlags}};
 
-use crate::{model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX, key_param, key_part}, mutator::IMutator};
-use ayagami::pose::{Key, Pose};
+use crate::{model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX, param_to_key}, mutator::IMutator};
+use ayagami::pose::{Key, Pose, Value};
 
 #[derive(GodotClass)]
 #[class(tool, init, base = AnimationPlayer)]
@@ -41,7 +41,7 @@ impl AyagamiMotionMutator {
 impl IMutator for AyagamiMotionMutator {
 	fn apply(&mut self, pose: &mut Pose) {
         if self.base().get_current_animation() != StringName::default() {
-            if let Some(p) = &self.pose {
+            if let Some(p) = self.pose.as_ref() {
                 pose.update(p);
             }
         }
@@ -79,21 +79,9 @@ impl IAnimationPlayer for AyagamiMotionMutator {
     }
 
     fn on_set(&mut self, property: StringName, value: Variant) -> bool {
-        if let Some(pose) = self.pose.as_mut() {
-            // check if attempting to set a value on the internal ayagami driver
-            if property.begins_with(PARAMETER_PREFIX) {
-                let key = key_param(property);
-                if let Ok(v) = value.try_to::<f32>() {
-                    pose.set_or_add(key, v);
-                    return true;
-                }
-            }
-            else if property.begins_with(PART_PREFIX) {
-                let key = key_part(property);
-                if let Ok(v) = value.try_to::<f32>() {
-                    pose.set_or_add(key, v);
-                    return true;
-                }
+        if let (Some(pose), Some(k), Ok(v)) = (self.pose.as_mut(), param_to_key(property).as_ref(), value.try_to::<f32>()) {
+            if let Some(p) = pose.get_mut_flattened(k) {
+                *p = Value::opaque(v);
             }
         }
 		
@@ -101,23 +89,9 @@ impl IAnimationPlayer for AyagamiMotionMutator {
 	}
 
 	fn on_get(&self, property: StringName) -> Option<Variant> {
-        if let Some(parent) = self.base().get_parent() {
-            if let Some(pose) = &self.pose {
-                if property.begins_with(PARAMETER_PREFIX) {
-                    let key = key_param(property.clone());
-                    let maybe_value = parent.get(&property);
-                    return pose.get(&key)
-                        .map(|v| v.value.to_variant())
-                        .or((!maybe_value.is_nil()).then_some(maybe_value));
-                }
-
-                if property.begins_with(PART_PREFIX) {
-                    let key = key_part(property.clone());
-                    let maybe_value = parent.get(&property);
-                    return pose.get(&key)
-                        .map(|v| v.value.to_variant())
-                        .or((!maybe_value.is_nil()).then_some(maybe_value));
-        		}
+        if let (Some(pose), Some(key)) = (self.pose.as_ref(), param_to_key(property)) {
+            if let Some(p) = pose.get_flattened(&key) {
+                return Some(p.to_variant());
             }
         }
 
@@ -125,27 +99,25 @@ impl IAnimationPlayer for AyagamiMotionMutator {
 	}
 
 	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
-        if let Some(parent) = self.base().get_parent() {
-            if let Ok(model) = parent.clone().try_cast::<AyagamiModel>() {
-                return model.bind().pose_map.iter().map(
-                    |(k, _)| match k {
-                        Key::Param(property) => PropertyInfo {
-                            variant_type: VariantType::FLOAT,
-                            class_name: ClassId::none().to_string_name(),
-                            property_name: format!("{}{}", PARAMETER_PREFIX, property).to_string_name(),
-                            hint_info: PropertyHintInfo::none(),
-                            usage: PropertyUsageFlags::EDITOR
-                        },
-                        Key::Part(property) => PropertyInfo {
-                            variant_type: VariantType::FLOAT,
-                            class_name: ClassId::none().to_string_name(),
-                            property_name: format!("{}{}", PART_PREFIX, property).to_string_name(),
-                            hint_info: PropertyHintInfo::none(),
-                            usage: PropertyUsageFlags::EDITOR
-                        }
+        if let Some(pose) = self.pose.as_ref() {
+            return pose.iter_desc().map(
+                |(k, _)| match k.key.clone() {
+                    Key::Param(property) => PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}", PARAMETER_PREFIX, property).to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::EDITOR
+                    },
+                    Key::Part(property) => PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}", PART_PREFIX, property).to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::EDITOR
                     }
-                ).collect();
-            }
+                }
+            ).collect();
         }
         return Vec::default();
 	}

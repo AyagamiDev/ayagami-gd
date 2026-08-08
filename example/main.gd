@@ -48,6 +48,7 @@ func _on_file_selected(path: String) -> void:
 		slider.max_value = value_range.y
 		slider.step = 0.01
 		slider.value = model.get(property)
+		label.tooltip_text = "range: [%.1f,%.1f]" % [value_range.x, value_range.y]
 		layout.add_child(slider)
 		
 		slider.value_changed.connect(
@@ -202,6 +203,12 @@ func _on_file_selected(path: String) -> void:
 		
 		%ExpressionList.add_child(row)
 #endregion
+	
+	var wiggler = preload("./wiggler.gd").new()
+	wiggler.name = "WiggleMutator"
+	wiggler.weight = 0.0  # Comment this out or change the value to see wiggling
+	model.add_child(wiggler)
+
 	await get_tree().process_frame
 	
 	%ModelInfo.text = "|".join([
