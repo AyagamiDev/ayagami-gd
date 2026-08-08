@@ -2,10 +2,9 @@ use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::expression::BlendMode::{MULTIPLY, OVERRIDE};
 use crate::model::key_param;
 use crate::mutator::{IMutator};
-use ayagami::pose::Pose;
+use ayagami::pose::{Pose, Value};
 
 const ACTIVE_PREFIX: &str = "expressions/";
 const WEIGHT_PREFIX: &str = "weight/";
@@ -62,13 +61,13 @@ impl IMutator for AyagamiExpressionMutator {
 			for track in ex.bind().tracks.iter_shared() {
 				let t = track.bind();
 				let k = key_param(t.property_name.clone());
-				if let Some(p) = pose.get_flattened(&k) {
-					let target = match t.blend_mode {
-						OVERRIDE => t.amount,
-						MULTIPLY => p * t.amount,
-						_ => p + t.amount
+				if let Some(p) = pose.get_mut_flattened(&k) {
+					let update = match t.blend_mode {
+						BlendMode::OVERRIDE => Value::opaque(t.amount),
+						BlendMode::MULTIPLY => p.multiply(&Value::opaque(t.amount), weight),
+						BlendMode::ADD => p.add(&Value::opaque(t.amount), weight)
 					};
-					pose.set(&k, p.lerp(target, weight));
+					pose.set_value(&k, update);
 				}
 			}
 		}
