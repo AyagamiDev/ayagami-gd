@@ -55,19 +55,15 @@ impl IMutator for AyagamiExpressionMutator {
 		for ex in self.expressions.iter_shared() {
 			let e = ex.get_name().to_string_name();
 			let weight = self.weight.get(&e).unwrap_or_default();
-			if weight <= 0.0 {
-				continue;
-			}
 			for track in ex.bind().tracks.iter_shared() {
 				let t = track.bind();
 				let k = key_param(t.property_name.clone());
 				if let Some(p) = pose.get_mut_flattened(&k) {
-					let update = match t.blend_mode {
-						BlendMode::OVERRIDE => Value::opaque(t.amount),
+					*p = match t.blend_mode {
+						BlendMode::OVERRIDE => p.blend(&Value::opaque(t.amount), weight),
 						BlendMode::MULTIPLY => p.multiply(&Value::opaque(t.amount), weight),
 						BlendMode::ADD => p.add(&Value::opaque(t.amount), weight)
 					};
-					pose.set_value(&k, update);
 				}
 			}
 		}

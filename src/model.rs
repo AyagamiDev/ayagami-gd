@@ -323,19 +323,24 @@ impl INode2D for AyagamiModel {
 		}
 		// apply mutators to pose and send to driver
 		else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
-			let state = &mut Pose::with_map(self.pose_map.clone());
-			// start our output pose from base set driven by model properties
-			if let Some(pose) = &self.pose {
-				state.update(pose);
-			}
-			
-			for child in self.base_mut().get_children().iter_shared() {
-				if let Ok(mut mutator) = child.try_dynify::<dyn IMutator>() {
-					mutator.dyn_bind_mut().apply(state);
+			let starting_pose = &mut {
+				let mut state = Pose::with_map(self.pose_map.clone());
+				if let Some(pose) = &self.pose {
+					state.update(pose);
 				}
-			}
-
-			self.model.as_mut().unwrap().driver.apply_pose(&state);
+				state
+			};
+			
+			let output_pose = self.base_mut().get_children().iter_shared().fold(
+				starting_pose,
+				|state, child| {
+					if let Ok(mut mutator) = child.try_dynify::<dyn IMutator>() {
+						mutator.dyn_bind_mut().apply(state);
+					}
+					state
+				}
+			);
+			self.model.as_mut().unwrap().driver.apply_pose(&output_pose);
 
 			self.update_meshes(false);
 			self.update_masks();
