@@ -48,11 +48,7 @@ impl AyagamiLoader {
 		let mut scene = AyagamiModel::new_alloc();
 		scene.set_scene_file_path(&file_path);
 
-		let model_file = settings.file_references.moc;
-		let model_path = base_path.path_join(&model_file);
-
 		// build materials for each texture
-		
 		let textures: Vec<Gd<Texture2D>> = settings.file_references.textures
 			.iter()
 			.map(|t_path| {
