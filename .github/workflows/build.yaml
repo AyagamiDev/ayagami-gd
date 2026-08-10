@@ -1,6 +1,10 @@
 name: Build Project
 on:
   push:
+    paths:
+      - "src/*"
+      - Cargo.lock
+      - Cargo.toml
 env:
   project: ayagami-gd
   

@@ -20,7 +20,7 @@ func _on_reset_button_pressed() -> void:
 	%Slider.value = model.property_get_revert(parameter)
 	
 func _on_slider_value_changed(value: float) -> void:
-	model.set("parameters/%s" % [parameter], value)
+	model.set(parameter, value)
 	
 func _process(delta: float) -> void:
 	if model.is_loaded():
