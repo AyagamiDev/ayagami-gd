@@ -1,0 +1,55 @@
+use godot::prelude::*;
+use godot::classes::{
+    EditorPlugin, IEditorPlugin
+};
+
+use crate::importer::*;
+
+#[derive(GodotClass)]
+#[class(tool, init, base=EditorPlugin)]
+struct AyagamiPlugin {
+    base: Base<EditorPlugin>,
+    model_importer: Gd<AyagamiImporter>,
+    motion_importer: Gd<AyagamiMotionImporter>,
+    expression_importer: Gd<AyagamiExpressionImporter>,
+}
+
+#[godot_api]
+impl IEditorPlugin for AyagamiPlugin {
+    fn enter_tree(&mut self) {
+        {
+            let plugin: Gd<AyagamiImporter> = AyagamiImporter::new_gd();
+            self.model_importer = plugin.clone();
+            self.base_mut().add_import_plugin(&plugin);
+        }
+
+        {
+            let plugin: Gd<AyagamiMotionImporter> = AyagamiMotionImporter::new_gd();
+            self.motion_importer = plugin.clone();
+            self.base_mut().add_import_plugin(&plugin);
+        }
+
+        {
+            let plugin: Gd<AyagamiExpressionImporter> = AyagamiExpressionImporter::new_gd();
+            self.expression_importer = plugin.clone();
+            self.base_mut().add_import_plugin(&plugin);
+        }
+    }
+
+    fn exit_tree(&mut self) {
+        {
+            let plugin = self.model_importer.clone();
+            self.base_mut().remove_import_plugin(&plugin);
+        }
+
+        {
+            let plugin = self.motion_importer.clone();
+            self.base_mut().remove_import_plugin(&plugin);
+        }
+
+        {
+            let plugin = self.expression_importer.clone();
+            self.base_mut().remove_import_plugin(&plugin);
+        }
+    }
+}

@@ -1,0 +1,41 @@
+[gd_scene format=3 uid="uid://cwyaqu800rjau"]
+
+[ext_resource type="Script" uid="uid://b03oruap8k7dk" path="res://example/parameter_input.gd" id="1_qy0jv"]
+[ext_resource type="Texture2D" uid="uid://dc1if6kt673ou" path="res://example/Reload.svg" id="1_trrd5"]
+
+[node name="ParameterInput" type="VBoxContainer" unique_id=686506093]
+size_flags_horizontal = 3
+script = ExtResource("1_qy0jv")
+
+[node name="ParameterName" type="Label" parent="." unique_id=909682363]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="Inputs" type="HBoxContainer" parent="." unique_id=1466793131]
+layout_mode = 2
+
+[node name="ResetButton" type="Button" parent="Inputs" unique_id=1207547183]
+layout_mode = 2
+icon = ExtResource("1_trrd5")
+
+[node name="Slider" type="HSlider" parent="Inputs" unique_id=2097353634]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 5
+step = 0.01
+
+[node name="CurrentValue" type="LineEdit" parent="Inputs" unique_id=271560872]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 5
+alignment = 2
+
+[node name="RealValue" type="LineEdit" parent="Inputs" unique_id=222197352]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 5
+alignment = 2
+
+[connection signal="pressed" from="Inputs/ResetButton" to="." method="_on_reset_button_pressed"]
+[connection signal="value_changed" from="Inputs/Slider" to="." method="_on_slider_value_changed"]

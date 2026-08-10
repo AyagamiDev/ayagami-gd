@@ -13,90 +13,48 @@ func _on_file_selected(path: String) -> void:
 		return
 	
 	if model:
+		remove_child(model)
 		model.queue_free()
-		await get_tree().process_frame
 	
 	model = AyagamiLoader.load_model(path)
-	model.name = "LoadedModel"
+	model.name = path.get_file().get_basename()
 	
 	add_child(model)
 	
+	var inputs = {}
+	
 #region populate parameters
 	for i in %ParameterList.get_children():
+		%ParameterList.remove_child(i)
 		i.queue_free()
 		
-	var param_sliders = {}
+	var folders = {}
 	for param in model.get_parameters():
 		var property = "parameters/%s" % param
-		var container = PanelContainer.new()
-		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-
-		var layout = VBoxContainer.new()
-		layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		container.add_child(layout)
-
-		var label = Label.new()
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.clip_text = true
-		label.text = param
-		layout.add_child(label)
-
-		var slider = HSlider.new()
-		var value_range: Vector2 = model.get("%s/range" % property)
-		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		slider.min_value = value_range.x
-		slider.max_value = value_range.y
-		slider.step = 0.01
-		slider.value = model.get(property)
-		label.tooltip_text = "range: [%.1f,%.1f]" % [value_range.x, value_range.y]
-		layout.add_child(slider)
+		var input = preload("./parameter_input.tscn").instantiate()
+		input.model = model
+		input.parameter = property
 		
-		slider.value_changed.connect(
-			func (v):
-				model.set(property, v)
-		)
-		
-		param_sliders[property] = slider
+		inputs[property] = input
 
-		%ParameterList.add_child(container)
+		%ParameterList.add_child(input)
 #endregion
 
 #region populate parts
 	for i in %PartList.get_children():
+		%PartList.remove_child(i)
 		i.queue_free()
 		
 	var part_sliders = {}
 	for part in model.get_parts():
 		var property = "parts/%s" % part
-		var container = PanelContainer.new()
-		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-
-		var layout = VBoxContainer.new()
-		layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		container.add_child(layout)
-
-		var label = Label.new()
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.clip_text = true
-		label.text = part
-		layout.add_child(label)
-
-		var slider = HSlider.new()
-		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		slider.min_value = 0.0
-		slider.max_value = 1.0
-		slider.step = 0.01
-		slider.value = model.get(property)
-		layout.add_child(slider)
+		var input = preload("./parameter_input.tscn").instantiate()
+		input.model = model
+		input.parameter = property
 		
-		slider.value_changed.connect(
-			func (v):
-				model.set(property, v)
-		)
-		
-		param_sliders[property] = slider
+		inputs[property] = input
 
-		%PartList.add_child(container)
+		%PartList.add_child(input)
 #endregion
 
 #region load motions
@@ -108,28 +66,26 @@ func _on_file_selected(path: String) -> void:
 	anim_player.animation_started.connect(
 		func (anim):
 			var a = anim_player.get_animation(anim)
+			
+			for p in inputs.values():
+				p.editable = true
+			
 			for track in range(a.get_track_count()):
 				var track_path: String = a.track_get_path(track).get_concatenated_subnames()
-				if track_path in part_sliders:
-					part_sliders[track_path].editable = false
-				if track_path in param_sliders:
-					param_sliders[track_path].editable = false
+				if track_path in inputs:
+					inputs[track_path].editable = false
 	)
 	anim_player.current_animation_changed.connect(
 		func (anim):
 			%PlayButton.set_pressed_no_signal(anim != "")
 			if anim == "":
-				for p in part_sliders.values():
-					p.editable = true
-				for p in param_sliders.values():
+				for p in inputs.values():
 					p.editable = true
 	)
 	anim_player.animation_finished.connect(
 		func (_anim):
 			%PlayButton.set_pressed_no_signal(false)
-			for p in part_sliders.values():
-				p.editable = true
-			for p in param_sliders.values():
+			for p in inputs.values():
 				p.editable = true
 	)
 	
@@ -221,6 +177,8 @@ func _on_file_selected(path: String) -> void:
 	])
 	
 	model_loaded.emit(model)
+	
+	%PhysicsMode.select(model.get_node("PhysicsController").mode)
 
 func _on_motion_list_item_selected(index: int) -> void:
 	if not model:
@@ -245,3 +203,10 @@ func _on_stop_button_pressed() -> void:
 	
 func _on_quality_toggle_toggled(toggled_on: bool) -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS if toggled_on else CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+
+func _on_render_mode_item_selected(index: int) -> void:
+	if not model:
+		return
+	
+	(model.get_node("PhysicsController") as AyagamiPhysicsMutator).mode = %PhysicsMode.get_item_id(index)
+	

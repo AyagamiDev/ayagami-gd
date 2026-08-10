@@ -42,7 +42,7 @@ impl IMutator for AyagamiMotionMutator {
 	fn apply(&mut self, pose: &mut Pose) {
         if self.base().get_current_animation() != StringName::default() {
             if let Some(p) = self.pose.as_ref() {
-                pose.update(p);
+                pose.blend(p, 1.0);
             }
         }
 	}

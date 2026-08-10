@@ -15,9 +15,10 @@ use ayagami::core::{
 };
 
 use crate::expression::{AyagamiExpression, AyagamiExpressionMutator, AyagamiExpressionTrack};
-use crate::importer::EXPRESSION_EXTENSION;
+use crate::importer::{EXPRESSION_EXTENSION};
 use crate::model::{AyagamiModel, PARAMETER_PREFIX, PART_PREFIX};
 use crate::motion::AyagamiMotionMutator;
+use crate::physics::AyagamiPhysicsMutator;
 
 fn shader_material( s: &str ) -> Gd<ShaderMaterial> {
 	let mut rl = ResourceLoader::singleton();
@@ -45,11 +46,10 @@ impl AyagamiLoader {
 		let base_path = file_path.get_base_dir();
 
 		let mut scene = AyagamiModel::new_alloc();
-		scene.set_meta("basepath", &base_path.to_variant());
+		scene.set_scene_file_path(&file_path);
 
 		let model_file = settings.file_references.moc;
 		let model_path = base_path.path_join(&model_file);
-		scene.set_meta("moc", &model_path.to_variant());
 
 		// build materials for each texture
 		
@@ -297,7 +297,6 @@ impl AyagamiLoader {
 			let mut motion_controller = AyagamiMotionMutator::new_alloc();
 			motion_controller.set_name("MotionController");
 			motion_controller.set_root(&".".to_node_path());
-			motion_controller.set_deterministic(true);
 			scene.add_child(&motion_controller);
 			motion_controller.set_owner(&scene);
 
@@ -305,6 +304,19 @@ impl AyagamiLoader {
 			let reset = self.create_reset_motion(&scene);
 			animation_library.add_animation("RESET", &reset);
 			motion_controller.add_animation_library("", &animation_library);
+		}
+
+		// setup physics
+		{
+			let mut mutator = AyagamiPhysicsMutator::new_alloc();
+			mutator.set_name("PhysicsController");
+
+			scene.add_child(&mutator);
+			mutator.set_owner(&scene);
+			if let Some(physics_file) = settings.file_references.physics {
+				let physics_filepath = base_path.path_join(&physics_file.to_gstring());
+				mutator.bind_mut().set_definition(physics_filepath);
+			}
 		}
 
 		scene
@@ -450,7 +462,7 @@ impl AyagamiLoader {
 
 	#[func]
 	pub fn load_motion_library(&self, model: Gd<AyagamiModel>) -> Gd<AnimationLibrary> {
-		let base_path: GString = ProjectSettings::singleton().globalize_path(&model.get_meta("basepath").to::<GString>());
+		let base_path: GString = ProjectSettings::singleton().globalize_path(&model.bind().base().get_scene_file_path().get_base_dir());
 		let mut animation_library = AnimationLibrary::new_gd();
 
 		for entry in glob(&format!("{}/**/*.motion3.json", base_path.to_string())).unwrap() {

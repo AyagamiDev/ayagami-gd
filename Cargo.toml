@@ -7,10 +7,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-ayagami = { git = "https://github.com/AyagamiDev/ayagami.git", branch = "pose" }
+ayagami = { git = "https://github.com/AyagamiDev/ayagami.git", branch = "main" }
 fastxfix = "1.0.0"
 glob = "0.3.3"
-godot = "0.5.4"
+godot = { version = "0.5.4", features = ["experimental-threads"] }
 serde = "1.0.229"
 serde_json = "1.0.151"
 

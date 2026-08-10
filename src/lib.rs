@@ -1,72 +1,75 @@
-use godot::obj::NewGd;
 use godot::prelude::*;
 use godot::classes::{
-    EditorPlugin,
-    IEditorPlugin
+    Engine, ResourceLoader,
 };
 
-use crate::importer::*;
-
-struct AyagamiExtension;
+use crate::physics::*;
 
 pub mod mutator;
 pub mod model;
 pub mod motion;
 pub mod expression;
+pub mod physics;
 pub mod loader;
 pub mod importer;
+pub mod plugin;
+
+struct AyagamiExtension;
 
 #[derive(GodotClass)]
-#[class(tool, init, base=EditorPlugin)]
-struct AyagamiPlugin {
-    base: Base<EditorPlugin>,
-    model_importer: Gd<AyagamiImporter>,
-    motion_importer: Gd<AyagamiMotionImporter>,
-    expression_importer: Gd<AyagamiExpressionImporter>,
+#[class(base=Object, tool)]
+struct AyagamiSingletons {
+    base: Base<Object>,
+
+    physics_loader: Gd<AyagamiPhysicsLoader>,
 }
 
 #[godot_api]
-impl IEditorPlugin for AyagamiPlugin {
-    fn enter_tree(&mut self) {
-        {
-            let plugin: Gd<AyagamiImporter> = AyagamiImporter::new_gd();
-            self.model_importer = plugin.clone();
-            self.base_mut().add_import_plugin(&plugin);
-        }
+impl IObject for AyagamiSingletons {
+    fn init(base: Base<Object>) -> Self {
+        let physics_loader = AyagamiPhysicsLoader::new_gd();
+    
+        ResourceLoader::singleton().add_resource_format_loader(&physics_loader);
 
-        {
-            let plugin: Gd<AyagamiMotionImporter> = AyagamiMotionImporter::new_gd();
-            self.motion_importer = plugin.clone();
-            self.base_mut().add_import_plugin(&plugin);
-        }
-
-        {
-            let plugin: Gd<AyagamiExpressionImporter> = AyagamiExpressionImporter::new_gd();
-            self.expression_importer = plugin.clone();
-            self.base_mut().add_import_plugin(&plugin);
+        Self { 
+            base,
+            physics_loader,
         }
     }
+}
 
-    fn exit_tree(&mut self) {
-        {
-            let plugin = self.model_importer.clone();
-            self.base_mut().remove_import_plugin(&plugin);
-        }
-
-        {
-            let plugin = self.motion_importer.clone();
-            self.base_mut().remove_import_plugin(&plugin);
-        }
-
-        {
-            let plugin = self.expression_importer.clone();
-            self.base_mut().remove_import_plugin(&plugin);
-        }
+// Unregister the loader and saver when the extension is unloaded.
+impl Drop for AyagamiSingletons {
+    fn drop(&mut self) {
+        ResourceLoader::singleton().remove_resource_format_loader(&self.physics_loader);
     }
 }
 
 #[gdextension]
 unsafe impl ExtensionLibrary for AyagamiExtension {
+    fn on_stage_init(stage: InitStage) {
+        match stage {
+            InitStage::Scene => {
+                Engine::singleton().register_singleton(
+                    &AyagamiSingletons::class_id().to_string_name(),
+                    &AyagamiSingletons::new_alloc(),
+                );
+            }
+            _ => {}
+        }
+    }
 
+    fn on_stage_deinit(stage: InitStage) {
+        match stage {
+            InitStage::Scene => {
+                let mut engine = Engine::singleton();
+                let singleton_name = &AyagamiSingletons::class_id().to_string_name();
+                let my_singleton = engine.get_singleton(singleton_name).unwrap();
+                engine.unregister_singleton(singleton_name);
+                my_singleton.free();
+            },
+            _ => {}
+        }   
+    }
 }
 

@@ -118,7 +118,7 @@ layout_mode = 2
 [node name="MotionControls" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=1265499278]
 layout_mode = 2
 size_flags_horizontal = 8
-size_flags_vertical = 2
+size_flags_vertical = 0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/MotionControls" unique_id=1360457549]
 layout_mode = 2
@@ -146,6 +146,39 @@ icon = ExtResource("5_7mycd")
 unique_name_in_owner = true
 custom_minimum_size = Vector2(250, 0)
 layout_mode = 2
+
+[node name="PhysicsControls" type="PanelContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=572216563]
+layout_mode = 2
+size_flags_horizontal = 8
+size_flags_vertical = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PhysicsControls" unique_id=1424797435]
+layout_mode = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PhysicsControls/VBoxContainer" unique_id=1465288084]
+layout_mode = 2
+alignment = 2
+
+[node name="Label" type="Label" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PhysicsControls/VBoxContainer/HBoxContainer" unique_id=693339312]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Physics Mode"
+
+[node name="PhysicsMode" type="OptionButton" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PhysicsControls/VBoxContainer/HBoxContainer" unique_id=1444890590]
+unique_name_in_owner = true
+layout_mode = 2
+selected = 0
+item_count = 3
+popup/item_0/text = "Compatible"
+popup/item_0/id = 0
+popup/item_1/text = "Useful"
+popup/item_1/id = 1
+popup/item_2/text = "Accurate"
+popup/item_2/id = 2
+
+[node name="Spacer" type="Control" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=986546169]
+layout_mode = 2
+size_flags_vertical = 3
 
 [node name="CameraReset" type="Button" parent="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer" unique_id=87637677]
 layout_mode = 2
@@ -206,6 +239,7 @@ horizontal_alignment = 2
 [connection signal="toggled" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/MotionControls/VBoxContainer/HBoxContainer/PlayButton" to="." method="_on_play_button_toggled"]
 [connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/MotionControls/VBoxContainer/HBoxContainer/StopButton" to="." method="_on_stop_button_pressed"]
 [connection signal="item_selected" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/MotionControls/VBoxContainer/MotionList" to="." method="_on_motion_list_item_selected"]
+[connection signal="item_selected" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/PhysicsControls/VBoxContainer/HBoxContainer/PhysicsMode" to="." method="_on_render_mode_item_selected"]
 [connection signal="pressed" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/CameraReset" to="CanvasLayer/Layout/HBoxContainer/DragControl" method="_on_camera_reset_pressed"]
 [connection signal="toggled" from="CanvasLayer/Layout/HBoxContainer/DragControl/MarginContainer/VBoxContainer/QualityControls/HBoxContainer/QualityToggle" to="." method="_on_quality_toggle_toggled"]
 [connection signal="file_selected" from="CanvasLayer/Layout/FileDialog" to="." method="_on_file_selected"]

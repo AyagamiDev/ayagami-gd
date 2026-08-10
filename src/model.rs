@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ayagami::meta::DisplayInfo;
 use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::classes::{
-	ArrayMesh, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
+	ArrayMesh, FileAccess, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
 };
 use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
 
 use ayagami::file::ParsedModel;
-use ayagami::core::Model;
+use ayagami::core::{Item, Model, Param};
 use ayagami::driver::Driver;
 use ayagami::pose::{Key, Pose, PoseMap, Value};
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
@@ -20,6 +21,8 @@ use crate::mutator::{IMutator};
 pub const PARAMETER_PREFIX: &str = "parameters/";
 const PARAMETER_RANGE_SUFFIX: &str = "/range";
 const PARAMETER_DEFAULT_SUFFIX: &str = "/default";
+const PARAMETER_GROUP_SUFFIX: &str = "/group";
+const OUTPUT_PREFIX: &str = "output/";
 
 pub const PART_PREFIX: &str = "parts/";
 
@@ -50,7 +53,9 @@ pub struct AyagamiModel {
 	origin: Vector2,
 
 	pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
-
+	display_info: Option<DisplayInfo>,
+	parameter_groups: HashMap<u32, GString>,
+	
 	dirty: bool,
 
 	mesh_group: Option<Gd<Node2D>>,
@@ -60,6 +65,7 @@ pub struct AyagamiModel {
 
 	pub pose: Option<Pose>,
 	pub pose_map: Arc<PoseMap>,
+	pub last_pose: Option<Pose>,
 }
 
 #[godot_api]
@@ -67,17 +73,50 @@ impl AyagamiModel {
 	#[signal]
 	pub fn loaded();
 
+	#[func]
 	fn is_loaded(&self) -> bool {
 		self.model.is_some()
 	}
 
 	pub fn load(&mut self) {
-		let file_path = self.base().get_meta("moc").to::<GString>();
-		let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
+		let resource_path = &self.base().get_scene_file_path();
+		
+		let base_path = resource_path.get_base_dir();
+		let settings: ayagami::meta::Model3 = {
+			godot_print!("model path: {}", resource_path);
+			let json = FileAccess::get_file_as_string(resource_path);
+			serde_json::from_str(&json.to_string()).expect("unable to parse model3 json")
+		};
 
-		let model = Box::new(ParsedModel::load(&mut f).unwrap());
+		let model = {
+			let file_path = base_path.path_join(&settings.file_references.moc.to_gstring());
+			let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
+			Box::new(ParsedModel::load(&mut f).unwrap())
+		};
+		self.display_info = if let Some(path) = settings.file_references.display_info {
+			let file_path = base_path.path_join(&path);
+			let json = FileAccess::get_file_as_string(&file_path);
+			serde_json::from_str(&json.to_string()).ok()
+		} else { None };
+
+		if let Some(di) = self.display_info.as_ref() {
+			for group in di.parameter_groups.clone() {
+				for param in di.parameters.clone() {
+					if param.group_id == group.id {
+						if let Some(p) = model.params().into_iter().find(|p| p.id() == param.id) {
+							self.parameter_groups.insert(p.uid(), group.name.to_gstring());
+						}
+					}
+				}
+			}
+		}
+		
 		self.pose_map = model.pose_map().clone();
-		self.pose = Some(Pose::new(&*model));
+		self.pose = {
+			let mut pose = Pose::new(&*model);
+			pose.flatten();
+			Some(pose)
+		};
 		let driver = Driver::new(&*model.as_ref());
 
 		let loaded = LoadedModel {
@@ -330,6 +369,7 @@ impl INode2D for AyagamiModel {
 		else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
 			let starting_pose = &mut {
 				let mut state = Pose::with_map(self.pose_map.clone());
+				state.populate(1.0);
 				let current = self.pose.as_ref().unwrap().to_owned();
 				state.update(&current);
 				state
@@ -345,6 +385,7 @@ impl INode2D for AyagamiModel {
 				}
 			);
 			self.model.as_mut().unwrap().driver.apply_pose(&output_pose);
+			self.last_pose = Some(output_pose.clone());
 
 			self.update_meshes(false);
 			self.update_masks();
@@ -387,19 +428,29 @@ impl INode2D for AyagamiModel {
 					return Some(p.default.to_variant());
 				}
 			}
-			else {
-				let key = key_param(property);
-				if let Some(pose) = self.pose.as_ref() {
-					if let Some(value) = pose.get_flattened(&key) {
-						return Some(value.to_variant());
-					}
+			else if property.ends_with(PARAMETER_GROUP_SUFFIX) {
+				let key = key_param(property.trim_suffix(PARAMETER_GROUP_SUFFIX).to_string_name());
+				if let Some((_, p)) = self.pose_map.get(&key) { 
+					return self.parameter_groups.get(&(p.uid as u32))
+						.map(|v| v.to_variant());
 				}
 			}
 		}
-		else if property.begins_with(PART_PREFIX) {
-			let key = key_part(property);
+		if property.begins_with(OUTPUT_PREFIX) {
+			if let Some(key) = param_to_key(property.trim_prefix(OUTPUT_PREFIX).to_string_name()) {
+				if let (Some(pose), Some(last)) = (self.pose.as_ref(), self.last_pose.as_ref()) {
+					return last.get(&key)
+						.map(|v| v.value)
+						.or(pose.get_flattened(&key))
+						.map(|v| v.to_variant());
+				} else {
+					return Some(0.0.to_variant());
+				}
+			}
+		}
+		if let Some(k) = param_to_key(property) {
 			if let Some(pose) = self.pose.as_ref() {
-				if let Some(value) = pose.get_flattened(&key) {
+				if let Some(value) = pose.get_flattened(&k) {
 					return Some(value.to_variant());
 				}
 			}
@@ -440,6 +491,20 @@ impl INode2D for AyagamiModel {
 						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_DEFAULT_SUFFIX).to_string_name(),
 						hint_info: PropertyHintInfo::none(),
 						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+					},
+					PropertyInfo {
+						variant_type: VariantType::STRING,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_GROUP_SUFFIX).to_string_name(),
+						hint_info: PropertyHintInfo::none(),
+						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+					},
+					PropertyInfo {
+						variant_type: VariantType::FLOAT,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}{}", OUTPUT_PREFIX, PARAMETER_PREFIX, id).to_string_name(),
+						hint_info: PropertyHintInfo::none(),
+						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
 					}
 				],
 				Key::Part(id) => vec![
@@ -452,6 +517,13 @@ impl INode2D for AyagamiModel {
 							hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
 						},
 						usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+					},
+					PropertyInfo {
+						variant_type: VariantType::FLOAT,
+						class_name: ClassId::none().to_string_name(),
+						property_name: format!("{}{}{}", OUTPUT_PREFIX, PART_PREFIX, id).to_string_name(),
+						hint_info: PropertyHintInfo::none(),
+						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
 					}
 				]
 			}
@@ -463,14 +535,10 @@ impl INode2D for AyagamiModel {
 			return None;
 		}
 
-		if property.begins_with(PARAMETER_PREFIX) {
-			let key = key_param(property.clone());
+		if let Some(key) = param_to_key(property.clone()) {
 			if let Some((_, p)) = self.pose_map.get(&key) {
 				return Some(p.default.to_variant());
 			}
-		}
-		else if property.begins_with(PART_PREFIX) {
-			return Some(1.0.to_variant());
 		}
 
 		return None;

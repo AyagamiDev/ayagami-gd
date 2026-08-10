@@ -342,6 +342,7 @@ Button/styles/pressed = SubResource("StyleBoxFlat_vj6dk")
 Button/styles/pressed_mirrored = SubResource("StyleBoxFlat_vj6dk")
 FlatPanelContainer/base_type = &"PanelContainer"
 FlatPanelContainer/styles/panel = SubResource("StyleBoxFlat_t7fn3")
+HBoxContainer/constants/separation = 8
 HSlider/constants/center_grabber = 0
 HSlider/constants/grabber_offset = 0
 HSlider/constants/tick_offset = 0

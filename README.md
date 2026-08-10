@@ -10,9 +10,6 @@ Features
 - import `.exp3.json` expressions
 - control expressions with tweenable weights or groupable toggle states
 
-## TODO
-- physics
-
 ## Correct Rendering in Godot
 
 Default blend modes available to Shaders in Godot 4.7.x do not match the reference blending.
