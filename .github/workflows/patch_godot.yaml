@@ -1,0 +1,50 @@
+name: Build Patched Godot
+on:
+  push:
+    paths:
+      - "patches/*"
+  workflow_dispatch:
+
+jobs:
+  patch:
+    name: Build Godot ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: editor
+            scons-flags: debug_symbols=no use_llvm=yes
+            bin: ./bin/godot.linuxbsd.editor.x86_64
+            artifact: linux-editor
+          - target: template_release
+            bin: ./bin/godot.linuxbsd.template_release.x86_64
+            artifact: linux-template
+    steps:
+      - name: Checkout godot engine
+        uses: actions/checkout@v6
+        with:
+          repository: godotengine/godot
+          ref: "4.7.1-stable"
+          submodules: recursive
+      - name: Checkout patches
+        uses: actions/checkout@v6
+        with:
+          path: ./ayagami
+      - name: Apply patches
+        shell: bash
+        run: |
+          for file in ./ayagami/patches/*; do
+            git apply < $file
+          done
+      - name: Setup Dependencies
+        uses: ./.github/actions/godot-deps
+      - name: Compile engine
+        uses: ./.github/actions/godot-build
+        with:
+          platform: linuxbsd
+          target: ${{ matrix.target }}
+          scons-flags: ${{ matrix.scons-flags }}
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: ${{ matrix.artifact }}
