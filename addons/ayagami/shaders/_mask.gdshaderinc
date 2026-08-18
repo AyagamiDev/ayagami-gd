@@ -4,8 +4,7 @@ uniform bool invert = false;
 uniform bool has_mask = false;
 
 uniform sampler2D tex_mask : filter_linear_mipmap, repeat_disable, hint_default_black;
-uniform float mask_scale = 1.0;
-instance uniform vec2 canvas_size = vec2(2,2);
+instance uniform float mask_scale = 1.0;
 instance uniform vec2 mask_offset = vec2(0,0);
 
 varying vec2 MASK_UV;

@@ -51,6 +51,9 @@ pub struct AyagamiModel {
 	size: Vector2i,
 	#[var(pub)]
 	origin: Vector2,
+	#[export(range = (128.0, 8096.0))]
+	#[init(val = 2048)]
+	mask_resolution: i32,
 
 	pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
 	display_info: Option<DisplayInfo>,
@@ -233,6 +236,7 @@ impl AyagamiModel {
 	}
 
 	fn update_masks(&mut self) {
+		let base_scale = self.base_mut().get_global_scale().x.min(1.0);
 		// update viewport dimensions and transform for masks
 		for mask in self.masks.iter_mut() {
 			let meshes: Vec<Gd<MeshInstance2D>> = mask.get_children().iter_shared().map(|n| n.cast::<MeshInstance2D>()).collect();
@@ -251,21 +255,33 @@ impl AyagamiModel {
 			
 			group_aabb = group_aabb.grow(4.0);
 
-			let dimensions = Vector2i {
-				x: group_aabb.size.x as i32,
-				y: group_aabb.size.y as i32,
+			let mut dimensions = Vector2 {
+				x: group_aabb.size.x as f32,
+				y: group_aabb.size.y as f32,
 			};
+			
 			let offset = Vector2 {
 				x: group_aabb.position.x,
 				y: group_aabb.position.y,
 			};
-			mask.set_size(dimensions);
-			mask.set_canvas_transform(Transform2D::from_angle_origin(0.0, -offset));
+
+			let resolution = self.mask_resolution as f32;
+			let scale: f32 = if dimensions.x > resolution || dimensions.y > resolution {
+					resolution / dimensions.x.max(dimensions.y)
+				} else { 
+					1.0 
+				} * base_scale;
+			dimensions *= scale;
+
+			let transform = Transform2D::from_angle_origin(0.0, -offset).scaled(Vector2::ONE * scale);
+			
+			mask.set_size(dimensions.to_vector2i());
+			mask.set_canvas_transform(transform);
 
 			let dependent_meshes = self.mask_lookup.get_mut(&mask.get_name()).unwrap();
 			for node in dependent_meshes.iter_mut() {
 				node.set_instance_shader_parameter("mask_offset", &offset.to_variant());
-				//node.set_instance_shader_parameter("canvas_size", &offset.to_variant());
+				node.set_instance_shader_parameter("mask_scale", &scale.to_variant());
 			}
 		}
 	}
