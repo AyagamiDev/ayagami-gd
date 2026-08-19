@@ -2,6 +2,8 @@ use godot::meta::ClassId;
 use godot::prelude::*;
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
+use std::collections::HashMap;
+
 use crate::model::key_param;
 use crate::mutator::{IMutator};
 use ayagami::pose::{Pose, Value};
@@ -45,8 +47,8 @@ pub struct AyagamiExpressionMutator {
 	#[export]
 	pub expressions: Array<Gd<AyagamiExpression>>,
 
-	expression_grouping: Dictionary<StringName, StringName>,
-	weight: Dictionary<StringName, f32>,
+	expression_grouping: HashMap<StringName, Vec<StringName>>,
+	weight: HashMap<StringName, f32>,
 }
 
 #[godot_dyn]
@@ -54,7 +56,7 @@ impl IMutator for AyagamiExpressionMutator {
 	fn apply(&mut self, pose: &mut Pose) {
 		for ex in self.expressions.iter_shared() {
 			let e = ex.get_name().to_string_name();
-			let weight = self.weight.get(&e).unwrap_or_default();
+			let weight = *self.weight.get(&e).unwrap_or(&0.0);
 			for track in ex.bind().tracks.iter_shared() {
 				let t = track.bind();
 				let k = key_param(t.property_name.clone());
@@ -74,7 +76,7 @@ impl IMutator for AyagamiExpressionMutator {
 impl AyagamiExpressionMutator {
 	#[func]
 	pub fn is_activated(&self, expression: StringName) -> bool {
-		return self.weight.get(&expression).unwrap_or(0.0) > 0.0;
+		return *self.weight.get(&expression).unwrap_or(&0.0) > 0.0;
 	}
 
 	#[func]
@@ -89,35 +91,40 @@ impl AyagamiExpressionMutator {
 			return;
 		}
 
-		for (e, _) in self.expression_grouping
-			.iter_shared()
-			.filter(|(_, group)| group == &group_name) {
-			self.weight.erase(&e);
+		for (e, _) in self.expression_grouping.clone()
+			.into_iter()
+			.filter(|(_, groups)| groups.contains(&group_name)) {
+			self.weight.remove(&e);
 		}
 	}
 
 	#[func]
 	pub fn get_expression_groups(&self) -> Vec<StringName> {
-		self.expression_grouping.values_array().iter_shared().fold(
-			Vec::new(),
-			|mut acc, v| {
-				if !acc.contains(&v) {
-					acc.push(v);
+		self.expression_grouping.values()
+			.into_iter()
+			.flatten()
+			.fold(
+				Vec::new(),
+				|mut acc, v| {
+					if !acc.contains(v) {
+						acc.push(v.clone());
+					}
+					acc
 				}
-				acc
-			}
-		)
+			)
 	}
 
 	fn toggle_expression(&mut self, expression_name: StringName, on: bool) {
 		if on {
 			// make sure only one expression for a group is active at a time
-			if let Some(group) = self.expression_grouping.get(&expression_name) {
-				self.reset_group(group);
+			if let Some(groups) = self.expression_grouping.clone().get(&expression_name) {
+				for group in groups {
+					self.reset_group(group.clone());
+				}
 			}
 		}
 		
-		self.weight.set(&expression_name, if on { 1.0 } else { 0.0 });
+		self.weight.insert(expression_name, if on { 1.0 } else { 0.0 });
 	}
 }
 
@@ -127,22 +134,28 @@ impl INode for AyagamiExpressionMutator {
 		if parameter.begins_with(WEIGHT_PREFIX) {
 			let name = parameter.trim_prefix(WEIGHT_PREFIX).to_string_name();
 			return self.weight.get(&name)
-				.or(Some(0.0))
+				.or(Some(&0.0))
 				.map(|v| v.to_variant());
 		}
 
 		if parameter.begins_with(GROUP_PREFIX) {
 			let name = parameter.trim_prefix(GROUP_PREFIX).to_string_name();
-			return self.expression_grouping.get(&name)
-				.or(Some("".to_string_name()))
-				.map(|v| v.to_variant());
+			if let Some(groups) = self.expression_grouping.clone().get(&name) {
+				return Some(
+					Array::from_iter(groups.iter()
+						.map(|v| v.to_variant())
+					).to_variant()
+				);
+			} else {
+				return Some(VarArray::new().to_variant());
+			}
 		}
 
 		if parameter.begins_with(ACTIVE_PREFIX) {
 			let name = parameter.trim_prefix(ACTIVE_PREFIX).to_string_name();
 			return self.weight.get(&name)
-				.or(Some(0.0))
-				.map(|v| (v > 0.0).to_variant())
+				.or(Some(&0.0))
+				.map(|v| (*v > 0.0).to_variant())
 		}
 
 		return None;
@@ -172,10 +185,13 @@ impl INode for AyagamiExpressionMutator {
 					usage: PropertyUsageFlags::EDITOR,
 				});
 				custom_params.push(PropertyInfo {
-					variant_type: VariantType::STRING,
+					variant_type: VariantType::ARRAY,
 					class_name: ClassId::none().to_string_name(),
 					property_name: format!("{}{}", GROUP_PREFIX, expression_name).to_string_name(),
-					hint_info: PropertyHintInfo::none(),
+					hint_info: PropertyHintInfo {
+						hint: PropertyHint::ARRAY_TYPE,
+						hint_string: "StringName".to_gstring(),
+					},
 					usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
 				});
 			}	
@@ -192,7 +208,7 @@ impl INode for AyagamiExpressionMutator {
 			return Some(false.to_variant());
 		}
 		if property.begins_with(GROUP_PREFIX) {
-			return Some(GString::default().to_variant());
+			return Some(VarArray::new().to_variant());
 		}
 		return None;
 	}
@@ -207,7 +223,7 @@ impl INode for AyagamiExpressionMutator {
 		if property.begins_with(WEIGHT_PREFIX) {
 			let expression = property.trim_prefix(WEIGHT_PREFIX).to_string_name();
 			let weight = value.to::<f32>().clamp(0.0, 1.0);
-			self.weight.set(&expression, weight);
+			self.weight.insert(expression, weight);
 			return true;
 		}
 
@@ -220,9 +236,16 @@ impl INode for AyagamiExpressionMutator {
 
 		if property.begins_with(GROUP_PREFIX) {
 			let expression = property.trim_prefix(GROUP_PREFIX).to_string_name();
-			let group = value.stringify().to_string_name();
-			self.expression_grouping.set(&expression, &group);
-			return true;
+			if let Ok(array) = value.try_to_relaxed::<VarArray>() {
+				let groups = array.iter_shared()
+					.map(|v| v.to_string().to_string_name())
+					.collect();
+				self.expression_grouping.insert(
+					expression, 
+					groups
+				);
+				return true;
+			}
 		}
 
 		return false;
