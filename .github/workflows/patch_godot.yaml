@@ -5,26 +5,26 @@ on:
       - "patches/*"
   workflow_dispatch:
 
+env:
+  GODOT_VERSION: 4.7.1
+
 jobs:
   patch:
-    name: Build Godot ${{ matrix.target }}
+    name: Build Godot ${{ matrix.platform }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
-          - target: editor
-            scons-flags: debug_symbols=no use_llvm=yes
-            bin: ./bin/godot.linuxbsd.editor.x86_64
-            artifact: linux-editor
-          - target: template_release
-            bin: ./bin/godot.linuxbsd.template_release.x86_64
-            artifact: linux-template
+          - platform: linuxbsd
+            editor_flags: debug_symbols=no use_llvm=yes
     steps:
       - name: Checkout godot engine
         uses: actions/checkout@v6
         with:
           repository: godotengine/godot
-          ref: "4.7.1-stable"
+          ref: "${{ env.GODOT_VERSION }}-stable"
           submodules: recursive
       - name: Checkout patches
         uses: actions/checkout@v6
@@ -38,13 +38,27 @@ jobs:
           done
       - name: Setup Dependencies
         uses: ./.github/actions/godot-deps
-      - name: Compile engine
+      - name: Compile editor
         uses: ./.github/actions/godot-build
         with:
-          platform: linuxbsd
-          target: ${{ matrix.target }}
-          scons-flags: ${{ matrix.scons-flags }}
+          platform: ${{ matrix.platform }}
+          target: editor
+          scons-flags: ${{ matrix.editor_flags }}
+      - name: Compile release template
+        uses: ./.github/actions/godot-build
+        with:
+          platform: ${{ matrix.platform }}
+          target: template_release
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.platform }}
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: bin/*
+          allowUpdates: true
+          name: Godot ${{ env.GODOT_VERSION }} Ayagami
+          body: Prepatched distribution of Godot supporting features required of Ayagami.
+          tag: godot
+          commit: main
+          prerelease: true
