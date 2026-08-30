@@ -253,7 +253,7 @@ impl AyagamiLoader {
 				mat.set_shader_parameter("tex_mask", &tex.to_variant());
 				mat.set_shader_parameter("has_mask", &true.to_variant());
 				mat.set_shader_parameter("mesh_offset", &offset.to_variant());
-				mat.set_shader_parameter("invert", &artmesh.invert_mask().to_variant());
+				node.set_instance_shader_parameter("mask_invert", &artmesh.invert_mask().to_variant());
 				node.set_material(&mat);
 
 				let mut dependent_meshes: VarArray;
