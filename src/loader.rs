@@ -13,6 +13,7 @@ use godot::classes::{
 use godot::prelude::*;
 
 use ayagami::core::{ArtMesh, BlendMode, Collection, Item, Model};
+use ayagami::driver::DrawNode;
 
 use crate::expression::{AyagamiExpression, AyagamiExpressionMutator, AyagamiExpressionTrack};
 use crate::importer::EXPRESSION_EXTENSION;
@@ -110,7 +111,11 @@ impl AyagamiLoader {
         let origin = m.canvas_properties().center;
 
         // make all the art meshes
-        for uid in md.driver.sorted_artmeshes().into_iter() {
+        for node in md.driver.draw_nodes(None).unwrap().into_iter() {
+            let DrawNode::ArtMesh(uid) = node else {
+                continue;
+            };
+
             let artmesh = md.model.artmeshes().get(*uid).unwrap();
             // TODO get mesh state when parameters are at defaults
             // let raw_mesh = md.driver.artmesh_state(artmesh.uid());
@@ -137,7 +142,7 @@ impl AyagamiLoader {
             let tex = textures.get(tex_id).unwrap();
             mesh_instance.set_texture(tex);
 
-            let mat = match artmesh.blend_mode() {
+            let mat = match artmesh.blend_config().simple().unwrap_or(BlendMode::Normal) {
                 BlendMode::Normal => Some(shaders.at(0)),
                 BlendMode::Add => Some(shaders.at(1)),
                 BlendMode::Multiply => Some(shaders.at(2)),

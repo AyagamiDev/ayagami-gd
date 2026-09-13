@@ -9,7 +9,7 @@ use godot::meta::ClassId;
 use godot::prelude::*;
 
 use ayagami::core::{Item, Model, Param};
-use ayagami::driver::Driver;
+use ayagami::driver::{DrawNode, Driver};
 use ayagami::file::ParsedModel;
 use ayagami::pose::{Key, Pose, PoseMap, Value};
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
@@ -143,10 +143,15 @@ impl AyagamiModel {
         // but as long as z-index is a global sort order, it's better for use the scene tree
         // and pray that a model isn't constantly changing its render order
         if md.driver.order_changed() {
-            for (order, uid) in md.driver.sorted_artmeshes().iter().enumerate() {
+            let mut order = 0;
+            for node in md.driver.draw_nodes(None).unwrap() {
+                let DrawNode::ArtMesh(uid) = node else {
+                    continue;
+                };
                 let mesh_instance = &self.meshes[uid];
 
                 mesh_group.move_child(mesh_instance, order as i32);
+                order += 1;
             }
         }
     }

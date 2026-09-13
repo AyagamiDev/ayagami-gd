@@ -64,7 +64,7 @@ dependencies = [
 [[package]]
 name = "ayagami"
 version = "0.1.0"
-source = "git+https://github.com/AyagamiDev/ayagami.git?branch=main#aaf7a39d41a67fd6df28d5d87d72e91d38130649"
+source = "git+https://github.com/AyagamiDev/ayagami.git?branch=main#a075829941b81ca0472756787c2154a888c666cc"
 dependencies = [
  "byteorder",
  "derive_more",
