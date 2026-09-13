@@ -1,17 +1,15 @@
+use godot::classes::{Engine, ResourceLoader};
 use godot::prelude::*;
-use godot::classes::{
-    Engine, ResourceLoader,
-};
 
 use crate::physics::*;
 
-pub mod mutator;
+pub mod expression;
+pub mod importer;
+pub mod loader;
 pub mod model;
 pub mod motion;
-pub mod expression;
+pub mod mutator;
 pub mod physics;
-pub mod loader;
-pub mod importer;
 pub mod plugin;
 
 struct AyagamiExtension;
@@ -28,10 +26,10 @@ struct AyagamiSingletons {
 impl IObject for AyagamiSingletons {
     fn init(base: Base<Object>) -> Self {
         let physics_loader = AyagamiPhysicsLoader::new_gd();
-    
+
         ResourceLoader::singleton().add_resource_format_loader(&physics_loader);
 
-        Self { 
+        Self {
             base,
             physics_loader,
         }
@@ -67,9 +65,8 @@ unsafe impl ExtensionLibrary for AyagamiExtension {
                 let my_singleton = engine.get_singleton(singleton_name).unwrap();
                 engine.unregister_singleton(singleton_name);
                 my_singleton.free();
-            },
+            }
             _ => {}
-        }   
+        }
     }
 }
-

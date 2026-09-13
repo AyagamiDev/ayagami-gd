@@ -1,7 +1,5 @@
+use godot::classes::{EditorPlugin, IEditorPlugin};
 use godot::prelude::*;
-use godot::classes::{
-    EditorPlugin, IEditorPlugin
-};
 
 use crate::importer::*;
 

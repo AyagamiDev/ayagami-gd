@@ -2,21 +2,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ayagami::meta::DisplayInfo;
-use godot::meta::ClassId;
-use godot::prelude::*;
-use godot::classes::{
-	ArrayMesh, FileAccess, INode2D, MeshInstance2D, ShaderMaterial, SubViewport
-};
 use godot::classes::file_access::ModeFlags;
 use godot::classes::notify::CanvasItemNotification;
+use godot::classes::{ArrayMesh, FileAccess, INode2D, MeshInstance2D, ShaderMaterial, SubViewport};
+use godot::meta::ClassId;
+use godot::prelude::*;
 
-use ayagami::file::ParsedModel;
 use ayagami::core::{Item, Model, Param};
-use ayagami::driver::Driver;
+use ayagami::driver::{DrawNode, Driver};
+use ayagami::file::ParsedModel;
 use ayagami::pose::{Key, Pose, PoseMap, Value};
 use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, PropertyUsageFlags};
 
-use crate::mutator::{IMutator};
+use crate::mutator::IMutator;
 
 pub const PARAMETER_PREFIX: &str = "parameters/";
 const PARAMETER_RANGE_SUFFIX: &str = "/range";
@@ -27,536 +25,607 @@ const OUTPUT_PREFIX: &str = "output/";
 pub const PART_PREFIX: &str = "parts/";
 
 pub fn key_param<'a>(property: StringName) -> Key<'a> {
-	Key::from_param(property.trim_prefix(PARAMETER_PREFIX).to_string())
+    Key::from_param(property.trim_prefix(PARAMETER_PREFIX).to_string())
 }
 pub fn key_part<'a>(property: StringName) -> Key<'a> {
-	Key::from_part(property.trim_prefix(PART_PREFIX).to_string())
+    Key::from_part(property.trim_prefix(PART_PREFIX).to_string())
 }
 pub fn param_to_key<'a>(property: StringName) -> Option<Key<'a>> {
-	if property.begins_with(PARAMETER_PREFIX) { Some(key_param(property)) }
-	else if property.begins_with(PART_PREFIX) { Some(key_part(property)) }
-	else { None }
+    if property.begins_with(PARAMETER_PREFIX) {
+        Some(key_param(property))
+    } else if property.begins_with(PART_PREFIX) {
+        Some(key_part(property))
+    } else {
+        None
+    }
 }
 
 pub struct LoadedModel<T: Model, R: AsRef<T>> {
-	pub model: R,
-	pub driver: Driver<T>,
+    pub model: R,
+    pub driver: Driver<T>,
 }
 
 #[derive(GodotClass)]
 #[class(tool, init, base = Node2D)]
 pub struct AyagamiModel {
-	base: Base<Node2D>,
-	#[var(pub)]
-	size: Vector2i,
-	#[var(pub)]
-	origin: Vector2,
-	#[export(range = (128.0, 8096.0))]
-	#[init(val = 2048)]
-	mask_resolution: i32,
+    base: Base<Node2D>,
+    #[var(pub)]
+    size: Vector2i,
+    #[var(pub)]
+    origin: Vector2,
+    #[export(range = (128.0, 8096.0))]
+    #[init(val = 2048)]
+    mask_resolution: i32,
 
-	pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
-	display_info: Option<DisplayInfo>,
-	parameter_groups: HashMap<u32, GString>,
-	
-	dirty: bool,
+    pub model: Option<LoadedModel<ParsedModel, Box<ParsedModel>>>,
+    display_info: Option<DisplayInfo>,
+    parameter_groups: HashMap<u32, GString>,
 
-	mesh_group: Option<Gd<Node2D>>,
-	meshes: HashMap<u32, Gd<MeshInstance2D>>,
-	masks: Vec<Gd<SubViewport>>,
-	mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
+    dirty: bool,
 
-	pub pose: Option<Pose>,
-	pub pose_map: Arc<PoseMap>,
-	pub last_pose: Option<Pose>,
+    mesh_group: Option<Gd<Node2D>>,
+    meshes: HashMap<u32, Gd<MeshInstance2D>>,
+    masks: Vec<Gd<SubViewport>>,
+    mask_lookup: HashMap<StringName, Vec<Gd<MeshInstance2D>>>,
+
+    pub pose: Option<Pose>,
+    pub pose_map: Arc<PoseMap>,
+    pub last_pose: Option<Pose>,
 }
 
 #[godot_api]
 impl AyagamiModel {
-	#[signal]
-	pub fn loaded();
+    #[signal]
+    pub fn loaded();
 
-	#[func]
-	fn is_loaded(&self) -> bool {
-		self.model.is_some()
-	}
+    #[func]
+    fn is_loaded(&self) -> bool {
+        self.model.is_some()
+    }
 
-	pub fn load(&mut self) {
-		let resource_path = &self.base().get_scene_file_path();
-		
-		let base_path = resource_path.get_base_dir();
-		let settings: ayagami::meta::Model3 = {
-			godot_print!("model path: {}", resource_path);
-			let json = FileAccess::get_file_as_string(resource_path);
-			serde_json::from_str(&json.to_string()).expect("unable to parse model3 json")
-		};
+    pub fn load(&mut self) {
+        let resource_path = &self.base().get_scene_file_path();
 
-		let model = {
-			let file_path = base_path.path_join(&settings.file_references.moc.to_gstring());
-			let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
-			Box::new(ParsedModel::load(&mut f).unwrap())
-		};
-		self.display_info = if let Some(path) = settings.file_references.display_info {
-			let file_path = base_path.path_join(&path);
-			let json = FileAccess::get_file_as_string(&file_path);
-			serde_json::from_str(&json.to_string()).ok()
-		} else { None };
+        let base_path = resource_path.get_base_dir();
+        let settings: ayagami::meta::Model3 = {
+            godot_print!("model path: {}", resource_path);
+            let json = FileAccess::get_file_as_string(resource_path);
+            serde_json::from_str(&json.to_string()).expect("unable to parse model3 json")
+        };
 
-		if let Some(di) = self.display_info.as_ref() {
-			for group in di.parameter_groups.clone() {
-				for param in di.parameters.clone() {
-					if param.group_id == group.id {
-						if let Some(p) = model.params().into_iter().find(|p| p.id() == param.id) {
-							self.parameter_groups.insert(p.uid(), group.name.to_gstring());
-						}
-					}
-				}
-			}
-		}
-		
-		self.pose_map = model.pose_map().clone();
-		self.pose = {
-			let mut pose = Pose::new(&*model);
-			pose.flatten();
-			Some(pose)
-		};
-		let driver = Driver::new(&*model.as_ref());
+        let model = {
+            let file_path = base_path.path_join(&settings.file_references.moc.to_gstring());
+            let mut f = GFile::open(&file_path, ModeFlags::READ).unwrap();
+            Box::new(ParsedModel::load(&mut f).unwrap())
+        };
+        self.display_info = if let Some(path) = settings.file_references.display_info {
+            let file_path = base_path.path_join(&path);
+            let json = FileAccess::get_file_as_string(&file_path);
+            serde_json::from_str(&json.to_string()).ok()
+        } else {
+            None
+        };
 
-		let loaded = LoadedModel {
-			model,
-			driver,
-		};
-		self.model = Some(loaded);
+        if let Some(di) = self.display_info.as_ref() {
+            for group in di.parameter_groups.clone() {
+                for param in di.parameters.clone() {
+                    if param.group_id == group.id {
+                        if let Some(p) = model.params().into_iter().find(|p| p.id() == param.id) {
+                            self.parameter_groups
+                                .insert(p.uid(), group.name.to_gstring());
+                        }
+                    }
+                }
+            }
+        }
 
-		self.dirty = true;
-	}
+        self.pose_map = model.pose_map().clone();
+        self.pose = {
+            let mut pose = Pose::new(&*model);
+            pose.flatten();
+            Some(pose)
+        };
+        let driver = Driver::new(&*model.as_ref());
 
-	fn reorder_meshes(&mut self) {
-		let mesh_group = self.mesh_group.as_mut().unwrap();
-		let md = self.model.as_mut().unwrap();
+        let loaded = LoadedModel { model, driver };
+        self.model = Some(loaded);
 
-		// reorder meshes if dirty to properly maintain z-index
-		// if Godot ever implements sorting groups (https://github.com/godotengine/godot-proposals/issues/9428)
-		// then we will be able to sensibly use z-index
-		// but as long as z-index is a global sort order, it's better for use the scene tree
-		// and pray that a model isn't constantly changing its render order
-		if md.driver.order_changed() {
-			for (order, uid) in md.driver.sorted_artmeshes().iter().enumerate() {
-				let mesh_instance = &self.meshes[uid];
-				
-				mesh_group.move_child(mesh_instance, order as i32);
-			}
-		}
-	}
+        self.dirty = true;
+    }
 
-	fn update_meshes(&mut self, force: bool) {
-		let binding = self.model.as_mut();
-		let md = binding.unwrap();
-		let m = md.model.as_ref();
-		md.driver.drive(m);
+    fn reorder_meshes(&mut self) {
+        let mesh_group = self.mesh_group.as_mut().unwrap();
+        let md = self.model.as_mut().unwrap();
 
-		let px_size = md.model.canvas_properties().scale;
+        // reorder meshes if dirty to properly maintain z-index
+        // if Godot ever implements sorting groups (https://github.com/godotengine/godot-proposals/issues/9428)
+        // then we will be able to sensibly use z-index
+        // but as long as z-index is a global sort order, it's better for use the scene tree
+        // and pray that a model isn't constantly changing its render order
+        if md.driver.order_changed() {
+            let mut order = 0;
+            for node in md.driver.draw_nodes(None).unwrap() {
+                let DrawNode::ArtMesh(uid) = node else {
+                    continue;
+                };
+                let mesh_instance = &self.meshes[uid];
 
-		// update mesh vertices
-		for (uid, child) in self.meshes.iter() {
-			let mut mesh_instance = child.to_owned().cast::<MeshInstance2D>();
-			let mut mesh = mesh_instance.get_mesh().unwrap().cast::<ArrayMesh>();
-			
-			let m = md.driver.artmesh_state(*uid).unwrap();
-			
-			let verts = m.vertices;
-			let count = verts.len();
+                mesh_group.move_child(mesh_instance, order as i32);
+                order += 1;
+            }
+        }
+    }
 
-			if count < 3 {
-				mesh_instance.set_visible(false);
-				continue;
-			}
+    fn update_meshes(&mut self, force: bool) {
+        let binding = self.model.as_mut();
+        let md = binding.unwrap();
+        let m = md.model.as_ref();
+        md.driver.drive(m);
 
-			mesh_instance.set_visible(m.visual.visible);
-			mesh_instance.set_self_modulate(Color {
-				r: 1.0,
-				g: 1.0,
-				b: 1.0,
-				a: m.visual.opacity
-			});
-			if mesh_instance.get_instance_shader_parameter("color_override") != true.to_variant() {
-				mesh_instance.set_instance_shader_parameter("color_multiply", &Color {
-					r: m.visual.multiply_color.x,
-					g: m.visual.multiply_color.y,
-					b: m.visual.multiply_color.z,
-					a: 1.0,
-				}.to_variant());
-				mesh_instance.set_instance_shader_parameter("color_screen", &Color {
-					r: m.visual.screen_color.x,
-					g: m.visual.screen_color.y,
-					b: m.visual.screen_color.z,
-					a: 1.0,
-				}.to_variant());
-			}
+        let px_size = md.model.canvas_properties().scale;
 
-			if !force {
-				if !m.updated {
-					continue;
-				}
+        // update mesh vertices
+        for (uid, child) in self.meshes.iter() {
+            let mut mesh_instance = child.to_owned().cast::<MeshInstance2D>();
+            let mut mesh = mesh_instance.get_mesh().unwrap().cast::<ArrayMesh>();
 
-				if !m.visual.visible {
-					continue;
-				}
-			}
-			
-			let mut ary = PackedVector2Array::new();
-			ary.resize(count);
+            let m = md.driver.artmesh_state(*uid).unwrap();
 
-			let mut vtx_min = Vector3::new(f32::MAX, f32::MAX, 0.0); // top-left
-			let mut vtx_max = Vector3::new(f32::MIN, f32::MIN, 0.0); // bottom-right
+            let verts = m.vertices;
+            let count = verts.len();
 
-			for (i, vtx) in verts.iter().enumerate() {
-				let x = vtx.x * px_size;
-				let y  = vtx.y * px_size;
-				vtx_min.x = f32::min(vtx_min.x, x); // left
-				vtx_min.y = f32::min(vtx_min.y, y); // top
-				vtx_max.x = f32::max(vtx_max.x, x); // right
-				vtx_max.y = f32::max(vtx_max.y, y); // bottom
+            if count < 3 {
+                mesh_instance.set_visible(false);
+                continue;
+            }
 
-				ary[i] = Vector2::new(x, y);
-			}
+            mesh_instance.set_visible(m.visual.visible);
+            mesh_instance.set_self_modulate(Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: m.visual.opacity,
+            });
+            if mesh_instance.get_instance_shader_parameter("color_override") != true.to_variant() {
+                mesh_instance.set_instance_shader_parameter(
+                    "color_multiply",
+                    &Color {
+                        r: m.visual.multiply_color.x,
+                        g: m.visual.multiply_color.y,
+                        b: m.visual.multiply_color.z,
+                        a: 1.0,
+                    }
+                    .to_variant(),
+                );
+                mesh_instance.set_instance_shader_parameter(
+                    "color_screen",
+                    &Color {
+                        r: m.visual.screen_color.x,
+                        g: m.visual.screen_color.y,
+                        b: m.visual.screen_color.z,
+                        a: 1.0,
+                    }
+                    .to_variant(),
+                );
+            }
 
-			mesh.surface_update_vertex_region(0, 0, &ary.to_byte_array());
+            if !force {
+                if !m.updated {
+                    continue;
+                }
 
-			// aabb does not get automatically updated when directly updating the vertex region
-			let aabb = Aabb::new(Vector3::new(vtx_min.x, vtx_min.y, 0.0), vtx_max - vtx_min);
-			let existing_aabb = mesh.get_custom_aabb();
+                if !m.visual.visible {
+                    continue;
+                }
+            }
 
-			// only mark as dirty of the bounds of the mesh have shifted so that we may
-			// update affected mask viewports
-			if aabb != existing_aabb {
-				mesh.set_custom_aabb(aabb);
-			}
-		}
-	}
+            let mut ary = PackedVector2Array::new();
+            ary.resize(count);
 
-	fn update_masks(&mut self) {
-		let base_scale = self.base_mut().get_global_scale().x.min(1.0);
-		// update viewport dimensions and transform for masks
-		for mask in self.masks.iter_mut() {
-			let meshes: Vec<Gd<MeshInstance2D>> = mask.get_children().iter_shared().map(|n| n.cast::<MeshInstance2D>()).collect();
-			let mut group_aabb: Aabb = {
-				let node = &meshes[0];
-				let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
-				
-				mesh.get_custom_aabb()
-			};
+            let mut vtx_min = Vector3::new(f32::MAX, f32::MAX, 0.0); // top-left
+            let mut vtx_max = Vector3::new(f32::MIN, f32::MIN, 0.0); // bottom-right
 
-			for node in meshes.iter() {
-				let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
-				let aabb = mesh.get_custom_aabb();
-				group_aabb = group_aabb.merge(aabb);
-			}
-			
-			group_aabb = group_aabb.grow(4.0);
+            for (i, vtx) in verts.iter().enumerate() {
+                let x = vtx.x * px_size;
+                let y = vtx.y * px_size;
+                vtx_min.x = f32::min(vtx_min.x, x); // left
+                vtx_min.y = f32::min(vtx_min.y, y); // top
+                vtx_max.x = f32::max(vtx_max.x, x); // right
+                vtx_max.y = f32::max(vtx_max.y, y); // bottom
 
-			let mut dimensions = Vector2 {
-				x: group_aabb.size.x as f32,
-				y: group_aabb.size.y as f32,
-			};
-			
-			let offset = Vector2 {
-				x: group_aabb.position.x,
-				y: group_aabb.position.y,
-			};
+                ary[i] = Vector2::new(x, y);
+            }
 
-			let resolution = self.mask_resolution as f32;
-			let scale: f32 = if dimensions.x > resolution || dimensions.y > resolution {
-					resolution / dimensions.x.max(dimensions.y)
-				} else { 
-					1.0 
-				} * base_scale;
-			dimensions *= scale;
+            mesh.surface_update_vertex_region(0, 0, &ary.to_byte_array());
 
-			let transform = Transform2D::from_angle_origin(0.0, -offset).scaled(Vector2::ONE * scale);
-			
-			mask.set_size(dimensions.to_vector2i());
-			mask.set_canvas_transform(transform);
+            // aabb does not get automatically updated when directly updating the vertex region
+            let aabb = Aabb::new(Vector3::new(vtx_min.x, vtx_min.y, 0.0), vtx_max - vtx_min);
+            let existing_aabb = mesh.get_custom_aabb();
 
-			let dependent_meshes = self.mask_lookup.get_mut(&mask.get_name()).unwrap();
-			for node in dependent_meshes.iter_mut() {
-				node.set_instance_shader_parameter("mask_offset", &offset.to_variant());
-				node.set_instance_shader_parameter("mask_scale", &scale.to_variant());
-			}
-		}
-	}
+            // only mark as dirty of the bounds of the mesh have shifted so that we may
+            // update affected mask viewports
+            if aabb != existing_aabb {
+                mesh.set_custom_aabb(aabb);
+            }
+        }
+    }
 
-	#[func]
-	pub fn get_parameters(&self) -> Array<StringName> {
-		let mut arr: Vec<_> = self.pose_map.keys().filter_map(
-			|k| match k {
-				Key::Param(id) => Some(id.to_string()),
-				_ => None
-			}
-		).collect();
-		arr.sort();
+    fn update_masks(&mut self) {
+        let base_scale = self.base_mut().get_global_scale().x.min(1.0);
+        // update viewport dimensions and transform for masks
+        for mask in self.masks.iter_mut() {
+            let meshes: Vec<Gd<MeshInstance2D>> = mask
+                .get_children()
+                .iter_shared()
+                .map(|n| n.cast::<MeshInstance2D>())
+                .collect();
+            let mut group_aabb: Aabb = {
+                let node = &meshes[0];
+                let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
 
-		Array::from_iter(arr.iter().map(|v| v.to_string_name()))
-	}
+                mesh.get_custom_aabb()
+            };
 
-	#[func]
-	pub fn get_parts(&self) -> Array<StringName> {
-		let mut arr: Vec<_> = self.pose_map.keys().filter_map(
-			|k| match k {
-				Key::Part(id) => Some(id.to_string()),
-				_ => None
-			}
-		).collect();
-		arr.sort();
+            for node in meshes.iter() {
+                let mesh = node.get_mesh().unwrap().cast::<ArrayMesh>();
+                let aabb = mesh.get_custom_aabb();
+                group_aabb = group_aabb.merge(aabb);
+            }
 
-		Array::from_iter(arr.iter().map(|v| v.to_string_name()))
-	}
+            group_aabb = group_aabb.grow(4.0);
+
+            let mut dimensions = Vector2 {
+                x: group_aabb.size.x as f32,
+                y: group_aabb.size.y as f32,
+            };
+
+            let offset = Vector2 {
+                x: group_aabb.position.x,
+                y: group_aabb.position.y,
+            };
+
+            let resolution = self.mask_resolution as f32;
+            let scale: f32 = if dimensions.x > resolution || dimensions.y > resolution {
+                resolution / dimensions.x.max(dimensions.y)
+            } else {
+                1.0
+            } * base_scale;
+            dimensions *= scale;
+
+            let transform =
+                Transform2D::from_angle_origin(0.0, -offset).scaled(Vector2::ONE * scale);
+
+            mask.set_size(dimensions.to_vector2i());
+            mask.set_canvas_transform(transform);
+
+            let dependent_meshes = self.mask_lookup.get_mut(&mask.get_name()).unwrap();
+            for node in dependent_meshes.iter_mut() {
+                node.set_instance_shader_parameter("mask_offset", &offset.to_variant());
+                node.set_instance_shader_parameter("mask_scale", &scale.to_variant());
+            }
+        }
+    }
+
+    #[func]
+    pub fn get_parameters(&self) -> Array<StringName> {
+        let mut arr: Vec<_> = self
+            .pose_map
+            .keys()
+            .filter_map(|k| match k {
+                Key::Param(id) => Some(id.to_string()),
+                _ => None,
+            })
+            .collect();
+        arr.sort();
+
+        Array::from_iter(arr.iter().map(|v| v.to_string_name()))
+    }
+
+    #[func]
+    pub fn get_parts(&self) -> Array<StringName> {
+        let mut arr: Vec<_> = self
+            .pose_map
+            .keys()
+            .filter_map(|k| match k {
+                Key::Part(id) => Some(id.to_string()),
+                _ => None,
+            })
+            .collect();
+        arr.sort();
+
+        Array::from_iter(arr.iter().map(|v| v.to_string_name()))
+    }
 }
 
 #[godot_api]
 impl INode2D for AyagamiModel {
-	fn on_notification(&mut self, what: CanvasItemNotification) {
-		// reconnect scene to an ayagami driver when instantiated from an imported resource
-		if what == CanvasItemNotification::READY {
-			if !self.is_loaded() {
-				self.load();
-			}
+    fn on_notification(&mut self, what: CanvasItemNotification) {
+        // reconnect scene to an ayagami driver when instantiated from an imported resource
+        if what == CanvasItemNotification::READY {
+            if !self.is_loaded() {
+                self.load();
+            }
 
-			// cache references so we don't have to go through the scene tree every update
-			let mesh_group = self.base().get_node_as::<Node2D>("Meshes");
-			self.mesh_group = Some(mesh_group.clone());
-			self.meshes = mesh_group.get_children().iter_shared().fold(
-				HashMap::new(),
-				|mut acc, n| {
-					acc.insert(n.get_meta("uid").to::<u32>(), n.cast::<MeshInstance2D>());
-					acc
-				}
-			);
+            // cache references so we don't have to go through the scene tree every update
+            let mesh_group = self.base().get_node_as::<Node2D>("Meshes");
+            self.mesh_group = Some(mesh_group.clone());
+            self.meshes =
+                mesh_group
+                    .get_children()
+                    .iter_shared()
+                    .fold(HashMap::new(), |mut acc, n| {
+                        acc.insert(n.get_meta("uid").to::<u32>(), n.cast::<MeshInstance2D>());
+                        acc
+                    });
 
-			let mask_group = self.base().get_node_as::<Node>("Masks");
-			self.masks = mask_group.get_children().iter_shared().map(|n| n.cast::<SubViewport>()).collect();
-			self.mask_lookup = self.masks.clone().into_iter().fold(
-				HashMap::new(),
-				|mut acc, n| {
-					let meshes = n.get_meta("meshes")
-						.to::<VarArray>()
-						.iter_shared()
-						.map(|np| np.to::<NodePath>())
-						.map(|path| self.base().get_node_as::<MeshInstance2D>(&path))
-						.collect();
-					acc.insert(n.get_name(), meshes);
-					acc
-				}
-			);
+            let mask_group = self.base().get_node_as::<Node>("Masks");
+            self.masks = mask_group
+                .get_children()
+                .iter_shared()
+                .map(|n| n.cast::<SubViewport>())
+                .collect();
+            self.mask_lookup = self
+                .masks
+                .clone()
+                .into_iter()
+                .fold(HashMap::new(), |mut acc, n| {
+                    let meshes = n
+                        .get_meta("meshes")
+                        .to::<VarArray>()
+                        .iter_shared()
+                        .map(|np| np.to::<NodePath>())
+                        .map(|path| self.base().get_node_as::<MeshInstance2D>(&path))
+                        .collect();
+                    acc.insert(n.get_name(), meshes);
+                    acc
+                });
 
-			self.update_meshes(true);
-			self.update_masks();
-			self.reorder_meshes();
+            self.update_meshes(true);
+            self.update_masks();
+            self.reorder_meshes();
 
-			self.base_mut().set_process_internal(true);
+            self.base_mut().set_process_internal(true);
 
-			self.signals().loaded().emit();
-		}
-		// reconnect all mask viewport textures to the dependent mesh shaders
-		// this is necessary because Viewport texture paths are relative to the absolute scene tree
-		else if what == CanvasItemNotification::ENTER_TREE {
-			let mask_group = self.base().get_node_as::<Node>("Masks");
-			for mask in mask_group.get_children().iter_shared().map(|n| n.cast::<SubViewport>()) {
-				for np in mask.get_meta("meshes").to::<VarArray>().iter_shared().map(|v| v.to::<NodePath>()) {
-					let node = self.base().get_node_as::<MeshInstance2D>(&np);
-					let mut mat = node.get_material().unwrap().cast::<ShaderMaterial>();
-					mat.set_shader_parameter(
-						"tex_mask",
-						&mask.get_texture().unwrap().to_variant()
-					);
-				}
-			}
-			/* Bug: godot-rust has not properly scoped this for public access
-			RenderingServer::singleton().canvas_item_set_custom_rect_full(
-				self.base().get_canvas_item(), true, 
-				Rect2i {
-					position: Vector2i::ZERO,
-					size: self.size
-				}
-			);
-			*/
-		}
-		// apply mutators to pose and send to driver
-		else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
-			let starting_pose = &mut {
-				let mut state = Pose::with_map(self.pose_map.clone());
-				state.populate(1.0);
-				let current = self.pose.as_ref().unwrap().to_owned();
-				state.update(&current);
-				state
-			};
-			
-			let output_pose = self.base_mut().get_children().iter_shared().fold(
-				starting_pose,
-				|state, child| {
-					if let Ok(mut mutator) = child.try_dynify::<dyn IMutator>() {
-						mutator.dyn_bind_mut().apply(state);
-					}
-					state
-				}
-			);
-			self.model.as_mut().unwrap().driver.apply_pose(&output_pose);
-			self.last_pose = Some(output_pose.clone());
+            self.signals().loaded().emit();
+        }
+        // reconnect all mask viewport textures to the dependent mesh shaders
+        // this is necessary because Viewport texture paths are relative to the absolute scene tree
+        else if what == CanvasItemNotification::ENTER_TREE {
+            let mask_group = self.base().get_node_as::<Node>("Masks");
+            for mask in mask_group
+                .get_children()
+                .iter_shared()
+                .map(|n| n.cast::<SubViewport>())
+            {
+                for np in mask
+                    .get_meta("meshes")
+                    .to::<VarArray>()
+                    .iter_shared()
+                    .map(|v| v.to::<NodePath>())
+                {
+                    let node = self.base().get_node_as::<MeshInstance2D>(&np);
+                    let mut mat = node.get_material().unwrap().cast::<ShaderMaterial>();
+                    mat.set_shader_parameter("tex_mask", &mask.get_texture().unwrap().to_variant());
+                }
+            }
+            /* Bug: godot-rust has not properly scoped this for public access
+            RenderingServer::singleton().canvas_item_set_custom_rect_full(
+                self.base().get_canvas_item(), true,
+                Rect2i {
+                    position: Vector2i::ZERO,
+                    size: self.size
+                }
+            );
+            */
+        }
+        // apply mutators to pose and send to driver
+        else if what == CanvasItemNotification::INTERNAL_PROCESS && self.is_loaded() {
+            let starting_pose = &mut {
+                let mut state = Pose::with_map(self.pose_map.clone());
+                state.populate(1.0);
+                let current = self.pose.as_ref().unwrap().to_owned();
+                state.update(&current);
+                state
+            };
 
-			self.update_meshes(false);
-			self.update_masks();
-			self.reorder_meshes();
-		}
-	}
+            let output_pose =
+                self.base_mut()
+                    .get_children()
+                    .iter_shared()
+                    .fold(starting_pose, |state, child| {
+                        if let Ok(mut mutator) = child.try_dynify::<dyn IMutator>() {
+                            mutator.dyn_bind_mut().apply(state);
+                        }
+                        state
+                    });
+            self.model.as_mut().unwrap().driver.apply_pose(&output_pose);
+            self.last_pose = Some(output_pose.clone());
 
-	fn on_set(&mut self, property: StringName, value: Variant) -> bool {
-		if !self.is_loaded() {
-			return false;
-		}
+            self.update_meshes(false);
+            self.update_masks();
+            self.reorder_meshes();
+        }
+    }
 
-		// check if attempting to set a value on the internal ayagami driver
-		if let (Some(pose), Some(key), Ok(v)) = (self.pose.as_mut(), param_to_key(property).as_ref(), value.try_to::<f32>()) {
-			if let Some(p) = pose.get_mut_flattened(key) {
-				*p = Value::opaque(v);
-				return true;
-			}
-		}
-		return false;
-	}
+    fn on_set(&mut self, property: StringName, value: Variant) -> bool {
+        if !self.is_loaded() {
+            return false;
+        }
 
-	fn on_get(&self, property: StringName) -> Option<Variant> {
-		if !self.is_loaded() {
-			return None;
-		}
+        // check if attempting to set a value on the internal ayagami driver
+        if let (Some(pose), Some(key), Ok(v)) = (
+            self.pose.as_mut(),
+            param_to_key(property).as_ref(),
+            value.try_to::<f32>(),
+        ) {
+            if let Some(p) = pose.get_mut_flattened(key) {
+                *p = Value::opaque(v);
+                return true;
+            }
+        }
+        return false;
+    }
 
-		if property.begins_with(PARAMETER_PREFIX) {
-			if property.ends_with(PARAMETER_RANGE_SUFFIX) {
-				let key = key_param(property.trim_suffix(PARAMETER_RANGE_SUFFIX).to_string_name());
-				if let Some((_, p)) = self.pose_map.get(&key) {
-					return Some(Vector2 {
-						x: p.min, y: p.max
-					}.to_variant());
-				}
-			}
-			else if property.ends_with(PARAMETER_DEFAULT_SUFFIX) {
-				let key = key_param(property.trim_suffix(PARAMETER_DEFAULT_SUFFIX).to_string_name());
-				if let Some((_, p)) = self.pose_map.get(&key) {
-					return Some(p.default.to_variant());
-				}
-			}
-			else if property.ends_with(PARAMETER_GROUP_SUFFIX) {
-				let key = key_param(property.trim_suffix(PARAMETER_GROUP_SUFFIX).to_string_name());
-				if let Some((_, p)) = self.pose_map.get(&key) { 
-					return self.parameter_groups.get(&(p.uid as u32))
-						.map(|v| v.to_variant());
-				}
-			}
-		}
-		if property.begins_with(OUTPUT_PREFIX) {
-			if let Some(key) = param_to_key(property.trim_prefix(OUTPUT_PREFIX).to_string_name()) {
-				if let (Some(pose), Some(last)) = (self.pose.as_ref(), self.last_pose.as_ref()) {
-					return last.get(&key)
-						.map(|v| v.value)
-						.or(pose.get_flattened(&key))
-						.map(|v| v.to_variant());
-				} else {
-					return Some(0.0.to_variant());
-				}
-			}
-		}
-		if let Some(k) = param_to_key(property) {
-			if let Some(pose) = self.pose.as_ref() {
-				if let Some(value) = pose.get_flattened(&k) {
-					return Some(value.to_variant());
-				}
-			}
-		}
+    fn on_get(&self, property: StringName) -> Option<Variant> {
+        if !self.is_loaded() {
+            return None;
+        }
 
-		return None;
-	}
+        if property.begins_with(PARAMETER_PREFIX) {
+            if property.ends_with(PARAMETER_RANGE_SUFFIX) {
+                let key = key_param(
+                    property
+                        .trim_suffix(PARAMETER_RANGE_SUFFIX)
+                        .to_string_name(),
+                );
+                if let Some((_, p)) = self.pose_map.get(&key) {
+                    return Some(Vector2 { x: p.min, y: p.max }.to_variant());
+                }
+            } else if property.ends_with(PARAMETER_DEFAULT_SUFFIX) {
+                let key = key_param(
+                    property
+                        .trim_suffix(PARAMETER_DEFAULT_SUFFIX)
+                        .to_string_name(),
+                );
+                if let Some((_, p)) = self.pose_map.get(&key) {
+                    return Some(p.default.to_variant());
+                }
+            } else if property.ends_with(PARAMETER_GROUP_SUFFIX) {
+                let key = key_param(
+                    property
+                        .trim_suffix(PARAMETER_GROUP_SUFFIX)
+                        .to_string_name(),
+                );
+                if let Some((_, p)) = self.pose_map.get(&key) {
+                    return self
+                        .parameter_groups
+                        .get(&(p.uid as u32))
+                        .map(|v| v.to_variant());
+                }
+            }
+        }
+        if property.begins_with(OUTPUT_PREFIX) {
+            if let Some(key) = param_to_key(property.trim_prefix(OUTPUT_PREFIX).to_string_name()) {
+                if let (Some(pose), Some(last)) = (self.pose.as_ref(), self.last_pose.as_ref()) {
+                    return last
+                        .get(&key)
+                        .map(|v| v.value)
+                        .or(pose.get_flattened(&key))
+                        .map(|v| v.to_variant());
+                } else {
+                    return Some(0.0.to_variant());
+                }
+            }
+        }
+        if let Some(k) = param_to_key(property) {
+            if let Some(pose) = self.pose.as_ref() {
+                if let Some(value) = pose.get_flattened(&k) {
+                    return Some(value.to_variant());
+                }
+            }
+        }
 
-	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
-		if !self.is_loaded() {
-			return Vec::new();
-		}
+        return None;
+    }
 
-		// expose driver parameters as fields on the model
-		self.pose_map.descriptors().into_iter().flat_map(
-			|param| match param.key.clone() {
-				Key::Param(id) => vec![
-					PropertyInfo {
-						variant_type: VariantType::FLOAT,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}", PARAMETER_PREFIX, id).to_string_name(),
-						hint_info: PropertyHintInfo {
-							hint: PropertyHint::RANGE,
-							hint_string: format!("{},{}", param.min, param.max).to_gstring(),
-						},
-						usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
-					},
-					PropertyInfo {
-						variant_type: VariantType::VECTOR2,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_RANGE_SUFFIX).to_string_name(),
-						hint_info: PropertyHintInfo::none(),
-						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-					},
-					PropertyInfo {
-						variant_type: VariantType::FLOAT,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_DEFAULT_SUFFIX).to_string_name(),
-						hint_info: PropertyHintInfo::none(),
-						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-					},
-					PropertyInfo {
-						variant_type: VariantType::STRING,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}{}", PARAMETER_PREFIX, id, PARAMETER_GROUP_SUFFIX).to_string_name(),
-						hint_info: PropertyHintInfo::none(),
-						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-					},
-					PropertyInfo {
-						variant_type: VariantType::FLOAT,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}{}", OUTPUT_PREFIX, PARAMETER_PREFIX, id).to_string_name(),
-						hint_info: PropertyHintInfo::none(),
-						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-					}
-				],
-				Key::Part(id) => vec![
-					PropertyInfo {
-						variant_type: VariantType::FLOAT,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}", PART_PREFIX, id).to_string_name(),
-						hint_info: PropertyHintInfo {
-							hint: PropertyHint::RANGE,
-							hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
-						},
-						usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
-					},
-					PropertyInfo {
-						variant_type: VariantType::FLOAT,
-						class_name: ClassId::none().to_string_name(),
-						property_name: format!("{}{}{}", OUTPUT_PREFIX, PART_PREFIX, id).to_string_name(),
-						hint_info: PropertyHintInfo::none(),
-						usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
-					}
-				]
-			}
-		).collect()
-	}
+    fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
+        if !self.is_loaded() {
+            return Vec::new();
+        }
 
-	fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
-		if self.model.is_none() {
-			return None;
-		}
+        // expose driver parameters as fields on the model
+        self.pose_map
+            .descriptors()
+            .into_iter()
+            .flat_map(|param| match param.key.clone() {
+                Key::Param(id) => vec![
+                    PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}", PARAMETER_PREFIX, id).to_string_name(),
+                        hint_info: PropertyHintInfo {
+                            hint: PropertyHint::RANGE,
+                            hint_string: format!("{},{}", param.min, param.max).to_gstring(),
+                        },
+                        usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+                    },
+                    PropertyInfo {
+                        variant_type: VariantType::VECTOR2,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!(
+                            "{}{}{}",
+                            PARAMETER_PREFIX, id, PARAMETER_RANGE_SUFFIX
+                        )
+                        .to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+                    },
+                    PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!(
+                            "{}{}{}",
+                            PARAMETER_PREFIX, id, PARAMETER_DEFAULT_SUFFIX
+                        )
+                        .to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+                    },
+                    PropertyInfo {
+                        variant_type: VariantType::STRING,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!(
+                            "{}{}{}",
+                            PARAMETER_PREFIX, id, PARAMETER_GROUP_SUFFIX
+                        )
+                        .to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+                    },
+                    PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}{}", OUTPUT_PREFIX, PARAMETER_PREFIX, id)
+                            .to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+                    },
+                ],
+                Key::Part(id) => vec![
+                    PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}", PART_PREFIX, id).to_string_name(),
+                        hint_info: PropertyHintInfo {
+                            hint: PropertyHint::RANGE,
+                            hint_string: format!("{},{}", 0.0, 1.0).to_gstring(),
+                        },
+                        usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+                    },
+                    PropertyInfo {
+                        variant_type: VariantType::FLOAT,
+                        class_name: ClassId::none().to_string_name(),
+                        property_name: format!("{}{}{}", OUTPUT_PREFIX, PART_PREFIX, id)
+                            .to_string_name(),
+                        hint_info: PropertyHintInfo::none(),
+                        usage: PropertyUsageFlags::READ_ONLY | PropertyUsageFlags::EDITOR,
+                    },
+                ],
+            })
+            .collect()
+    }
 
-		if let Some(key) = param_to_key(property.clone()) {
-			if let Some((_, p)) = self.pose_map.get(&key) {
-				return Some(p.default.to_variant());
-			}
-		}
+    fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
+        if self.model.is_none() {
+            return None;
+        }
 
-		return None;
-	}
+        if let Some(key) = param_to_key(property.clone()) {
+            if let Some((_, p)) = self.pose_map.get(&key) {
+                return Some(p.default.to_variant());
+            }
+        }
+
+        return None;
+    }
 }
