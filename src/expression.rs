@@ -5,7 +5,7 @@ use godot::register::info::{PropertyHint, PropertyHintInfo, PropertyInfo, Proper
 use std::collections::HashMap;
 
 use crate::model::key_param;
-use crate::mutator::{IMutator};
+use crate::mutator::IMutator;
 use ayagami::pose::{Pose, Value};
 
 const ACTIVE_PREFIX: &str = "expressions/";
@@ -15,239 +15,236 @@ pub const GROUP_PREFIX: &str = "expression_groups/";
 #[derive(GodotConvert, Var, Export, Default, Clone)]
 #[godot(via = GString)]
 pub enum BlendMode {
-	#[default]
-	ADD,
-	MULTIPLY,
-	OVERRIDE,
+    #[default]
+    ADD,
+    MULTIPLY,
+    OVERRIDE,
 }
 
 #[derive(GodotClass)]
 #[class(tool, init, base=Resource)]
 pub struct AyagamiExpressionTrack {
-	#[export]
-	pub property_name: StringName,
-	#[export]
-	pub blend_mode: BlendMode,
-	#[export]
-	pub amount: f32
+    #[export]
+    pub property_name: StringName,
+    #[export]
+    pub blend_mode: BlendMode,
+    #[export]
+    pub amount: f32,
 }
 
 #[derive(GodotClass)]
 #[class(tool, init, base = Resource)]
 pub struct AyagamiExpression {
-	#[export]
-	pub tracks: Array<Gd<AyagamiExpressionTrack>>
+    #[export]
+    pub tracks: Array<Gd<AyagamiExpressionTrack>>,
 }
 
 #[derive(GodotClass)]
 #[class(tool, init, base = Node)]
 pub struct AyagamiExpressionMutator {
-	base: Base<Node>,
+    base: Base<Node>,
 
-	#[export]
-	pub expressions: Array<Gd<AyagamiExpression>>,
+    #[export]
+    pub expressions: Array<Gd<AyagamiExpression>>,
 
-	expression_grouping: HashMap<StringName, Vec<StringName>>,
-	weight: HashMap<StringName, f32>,
+    expression_grouping: HashMap<StringName, Vec<StringName>>,
+    weight: HashMap<StringName, f32>,
 }
 
 #[godot_dyn]
 impl IMutator for AyagamiExpressionMutator {
-	fn apply(&mut self, pose: &mut Pose) {
-		for ex in self.expressions.iter_shared() {
-			let e = ex.get_name().to_string_name();
-			let weight = *self.weight.get(&e).unwrap_or(&0.0);
-			for track in ex.bind().tracks.iter_shared() {
-				let t = track.bind();
-				let k = key_param(t.property_name.clone());
-				if let Some(p) = pose.get_mut_flattened(&k) {
-					*p = match t.blend_mode {
-						BlendMode::OVERRIDE => p.blend(&Value::opaque(t.amount), weight),
-						BlendMode::MULTIPLY => p.multiply(&Value::opaque(t.amount), weight),
-						BlendMode::ADD => p.add(&Value::opaque(t.amount), weight)
-					};
-				}
-			}
-		}
-	}
+    fn apply(&mut self, pose: &mut Pose) {
+        for ex in self.expressions.iter_shared() {
+            let e = ex.get_name().to_string_name();
+            let weight = *self.weight.get(&e).unwrap_or(&0.0);
+            for track in ex.bind().tracks.iter_shared() {
+                let t = track.bind();
+                let k = key_param(t.property_name.clone());
+                if let Some(p) = pose.get_mut_flattened(&k) {
+                    *p = match t.blend_mode {
+                        BlendMode::OVERRIDE => p.blend(&Value::opaque(t.amount), weight),
+                        BlendMode::MULTIPLY => p.multiply(&Value::opaque(t.amount), weight),
+                        BlendMode::ADD => p.add(&Value::opaque(t.amount), weight),
+                    };
+                }
+            }
+        }
+    }
 }
 
 #[godot_api]
 impl AyagamiExpressionMutator {
-	#[func]
-	pub fn is_activated(&self, expression: StringName) -> bool {
-		return *self.weight.get(&expression).unwrap_or(&0.0) > 0.0;
-	}
+    #[func]
+    pub fn is_activated(&self, expression: StringName) -> bool {
+        return *self.weight.get(&expression).unwrap_or(&0.0) > 0.0;
+    }
 
-	#[func]
-	pub fn reset(&mut self) {
-		self.weight.clear();
-	}
+    #[func]
+    pub fn reset(&mut self) {
+        self.weight.clear();
+    }
 
-	#[func]
-	pub fn reset_group(&mut self, group_name: StringName) {
-		// don't allow resetting the default empty group
-		if group_name.is_empty() {
-			return;
-		}
+    #[func]
+    pub fn reset_group(&mut self, group_name: StringName) {
+        // don't allow resetting the default empty group
+        if group_name.is_empty() {
+            return;
+        }
 
-		for (e, _) in self.expression_grouping.clone()
-			.into_iter()
-			.filter(|(_, groups)| groups.contains(&group_name)) {
-			self.weight.remove(&e);
-		}
-	}
+        for (e, _) in self
+            .expression_grouping
+            .clone()
+            .into_iter()
+            .filter(|(_, groups)| groups.contains(&group_name))
+        {
+            self.weight.remove(&e);
+        }
+    }
 
-	#[func]
-	pub fn get_expression_groups(&self) -> Vec<StringName> {
-		self.expression_grouping.values()
-			.into_iter()
-			.flatten()
-			.fold(
-				Vec::new(),
-				|mut acc, v| {
-					if !acc.contains(v) {
-						acc.push(v.clone());
-					}
-					acc
-				}
-			)
-	}
+    #[func]
+    pub fn get_expression_groups(&self) -> Vec<StringName> {
+        self.expression_grouping
+            .values()
+            .into_iter()
+            .flatten()
+            .fold(Vec::new(), |mut acc, v| {
+                if !acc.contains(v) {
+                    acc.push(v.clone());
+                }
+                acc
+            })
+    }
 
-	fn toggle_expression(&mut self, expression_name: StringName, on: bool) {
-		if on {
-			// make sure only one expression for a group is active at a time
-			if let Some(groups) = self.expression_grouping.clone().get(&expression_name) {
-				for group in groups {
-					self.reset_group(group.clone());
-				}
-			}
-		}
-		
-		self.weight.insert(expression_name, if on { 1.0 } else { 0.0 });
-	}
+    fn toggle_expression(&mut self, expression_name: StringName, on: bool) {
+        if on {
+            // make sure only one expression for a group is active at a time
+            if let Some(groups) = self.expression_grouping.clone().get(&expression_name) {
+                for group in groups {
+                    self.reset_group(group.clone());
+                }
+            }
+        }
+
+        self.weight
+            .insert(expression_name, if on { 1.0 } else { 0.0 });
+    }
 }
 
 #[godot_api]
 impl INode for AyagamiExpressionMutator {
-	fn on_get(&self, parameter: StringName) -> Option<Variant> {
-		if parameter.begins_with(WEIGHT_PREFIX) {
-			let name = parameter.trim_prefix(WEIGHT_PREFIX).to_string_name();
-			return self.weight.get(&name)
-				.or(Some(&0.0))
-				.map(|v| v.to_variant());
-		}
+    fn on_get(&self, parameter: StringName) -> Option<Variant> {
+        if parameter.begins_with(WEIGHT_PREFIX) {
+            let name = parameter.trim_prefix(WEIGHT_PREFIX).to_string_name();
+            return self
+                .weight
+                .get(&name)
+                .or(Some(&0.0))
+                .map(|v| v.to_variant());
+        }
 
-		if parameter.begins_with(GROUP_PREFIX) {
-			let name = parameter.trim_prefix(GROUP_PREFIX).to_string_name();
-			if let Some(groups) = self.expression_grouping.clone().get(&name) {
-				return Some(
-					Array::from_iter(groups.iter()
-						.map(|v| v.to_variant())
-					).to_variant()
-				);
-			} else {
-				return Some(VarArray::new().to_variant());
-			}
-		}
+        if parameter.begins_with(GROUP_PREFIX) {
+            let name = parameter.trim_prefix(GROUP_PREFIX).to_string_name();
+            if let Some(groups) = self.expression_grouping.clone().get(&name) {
+                return Some(Array::from_iter(groups.iter().map(|v| v.to_variant())).to_variant());
+            } else {
+                return Some(VarArray::new().to_variant());
+            }
+        }
 
-		if parameter.begins_with(ACTIVE_PREFIX) {
-			let name = parameter.trim_prefix(ACTIVE_PREFIX).to_string_name();
-			return self.weight.get(&name)
-				.or(Some(&0.0))
-				.map(|v| (*v > 0.0).to_variant())
-		}
+        if parameter.begins_with(ACTIVE_PREFIX) {
+            let name = parameter.trim_prefix(ACTIVE_PREFIX).to_string_name();
+            return self
+                .weight
+                .get(&name)
+                .or(Some(&0.0))
+                .map(|v| (*v > 0.0).to_variant());
+        }
 
-		return None;
-	}
+        return None;
+    }
 
-	fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
-		let mut custom_params: Vec<PropertyInfo> = Vec::new();
+    fn on_get_property_list(&mut self) -> Vec<PropertyInfo> {
+        let mut custom_params: Vec<PropertyInfo> = Vec::new();
 
-		self.expressions.iter_shared().for_each(
-			|ex| {
-				let expression_name = ex.get_name();
-				custom_params.push(PropertyInfo {
-					variant_type: VariantType::BOOL,
-					class_name: ClassId::none().to_string_name(),
-					property_name: format!("{}{}", ACTIVE_PREFIX, expression_name).to_string_name(),
-					hint_info: PropertyHintInfo::none(),
-					usage: PropertyUsageFlags::EDITOR,
-				});
-				custom_params.push(PropertyInfo {
-					variant_type: VariantType::FLOAT,
-					class_name: ClassId::none().to_string_name(),
-					property_name: format!("{}{}", WEIGHT_PREFIX, expression_name).to_string_name(),
-					hint_info: PropertyHintInfo {
-						hint: PropertyHint::NONE,
-						hint_string: "0.0,1.0".to_gstring(),
-					},
-					usage: PropertyUsageFlags::EDITOR,
-				});
-				custom_params.push(PropertyInfo {
-					variant_type: VariantType::ARRAY,
-					class_name: ClassId::none().to_string_name(),
-					property_name: format!("{}{}", GROUP_PREFIX, expression_name).to_string_name(),
-					hint_info: PropertyHintInfo {
-						hint: PropertyHint::ARRAY_TYPE,
-						hint_string: "StringName".to_gstring(),
-					},
-					usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
-				});
-			}	
-		);
+        self.expressions.iter_shared().for_each(|ex| {
+            let expression_name = ex.get_name();
+            custom_params.push(PropertyInfo {
+                variant_type: VariantType::BOOL,
+                class_name: ClassId::none().to_string_name(),
+                property_name: format!("{}{}", ACTIVE_PREFIX, expression_name).to_string_name(),
+                hint_info: PropertyHintInfo::none(),
+                usage: PropertyUsageFlags::EDITOR,
+            });
+            custom_params.push(PropertyInfo {
+                variant_type: VariantType::FLOAT,
+                class_name: ClassId::none().to_string_name(),
+                property_name: format!("{}{}", WEIGHT_PREFIX, expression_name).to_string_name(),
+                hint_info: PropertyHintInfo {
+                    hint: PropertyHint::NONE,
+                    hint_string: "0.0,1.0".to_gstring(),
+                },
+                usage: PropertyUsageFlags::EDITOR,
+            });
+            custom_params.push(PropertyInfo {
+                variant_type: VariantType::ARRAY,
+                class_name: ClassId::none().to_string_name(),
+                property_name: format!("{}{}", GROUP_PREFIX, expression_name).to_string_name(),
+                hint_info: PropertyHintInfo {
+                    hint: PropertyHint::ARRAY_TYPE,
+                    hint_string: "StringName".to_gstring(),
+                },
+                usage: PropertyUsageFlags::STORAGE | PropertyUsageFlags::EDITOR,
+            });
+        });
 
-		custom_params
-	}
+        custom_params
+    }
 
-	fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
-		if property.begins_with(WEIGHT_PREFIX) {
-			return Some(0.0.to_variant());
-		}
-		if property.begins_with(ACTIVE_PREFIX) {
-			return Some(false.to_variant());
-		}
-		if property.begins_with(GROUP_PREFIX) {
-			return Some(VarArray::new().to_variant());
-		}
-		return None;
-	}
+    fn on_property_get_revert(&self, property: StringName) -> Option<Variant> {
+        if property.begins_with(WEIGHT_PREFIX) {
+            return Some(0.0.to_variant());
+        }
+        if property.begins_with(ACTIVE_PREFIX) {
+            return Some(false.to_variant());
+        }
+        if property.begins_with(GROUP_PREFIX) {
+            return Some(VarArray::new().to_variant());
+        }
+        return None;
+    }
 
-	fn on_set(&mut self, property: StringName, value: Variant) -> bool {
-		
-		// manipulating weight values directly give you full control over how expressions
-		// are applied, but bypasses grouping to keep internals simple.
-		// A usecase for manipulating weights directly would be to fade between weights
-		// using Tweens.  When doing so, it is necessary to replicate grouping behavior
-		// in your own code
-		if property.begins_with(WEIGHT_PREFIX) {
-			let expression = property.trim_prefix(WEIGHT_PREFIX).to_string_name();
-			let weight = value.to::<f32>().clamp(0.0, 1.0);
-			self.weight.insert(expression, weight);
-			return true;
-		}
+    fn on_set(&mut self, property: StringName, value: Variant) -> bool {
+        // manipulating weight values directly give you full control over how expressions
+        // are applied, but bypasses grouping to keep internals simple.
+        // A usecase for manipulating weights directly would be to fade between weights
+        // using Tweens.  When doing so, it is necessary to replicate grouping behavior
+        // in your own code
+        if property.begins_with(WEIGHT_PREFIX) {
+            let expression = property.trim_prefix(WEIGHT_PREFIX).to_string_name();
+            let weight = value.to::<f32>().clamp(0.0, 1.0);
+            self.weight.insert(expression, weight);
+            return true;
+        }
 
-		// active toggles respect group exclusivity and will deactive other expressions
-		if property.begins_with(ACTIVE_PREFIX) {
-			let expression = property.trim_prefix(ACTIVE_PREFIX).to_string_name();
-			self.toggle_expression(expression, value.booleanize());
-			return true;
-		}
+        // active toggles respect group exclusivity and will deactive other expressions
+        if property.begins_with(ACTIVE_PREFIX) {
+            let expression = property.trim_prefix(ACTIVE_PREFIX).to_string_name();
+            self.toggle_expression(expression, value.booleanize());
+            return true;
+        }
 
-		if property.begins_with(GROUP_PREFIX) {
-			let expression = property.trim_prefix(GROUP_PREFIX).to_string_name();
-			if let Ok(array) = value.try_to_relaxed::<VarArray>() {
-				let groups = array.iter_shared()
-					.map(|v| v.to_string().to_string_name())
-					.collect();
-				self.expression_grouping.insert(
-					expression, 
-					groups
-				);
-				return true;
-			}
-		}
+        if property.begins_with(GROUP_PREFIX) {
+            let expression = property.trim_prefix(GROUP_PREFIX).to_string_name();
+            if let Ok(array) = value.try_to_relaxed::<VarArray>() {
+                let groups = array
+                    .iter_shared()
+                    .map(|v| v.to_string().to_string_name())
+                    .collect();
+                self.expression_grouping.insert(expression, groups);
+                return true;
+            }
+        }
 
-		return false;
-	}
+        return false;
+    }
 }
