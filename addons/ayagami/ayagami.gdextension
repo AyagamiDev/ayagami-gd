@@ -4,5 +4,15 @@ compatibility_minimum = 4.7
 reloadable = true
 
 [libraries]
-linux.debug.x86_64 =     "res://addons/ayagami/lib/libayagami_gd.debug.so"
-linux.release.x86_64 =   "res://addons/ayagami/lib/libayagami_gd.release.so"
+linux.debug.x86_64 =     "res://addons/ayagami/lib/libayagami_gd.release.x86_64.so"
+linux.release.x86_64 =   "res://addons/ayagami/lib/libayagami_gd.release.x86_64.so"
+linux.debug.arm64 =      "res://addons/ayagami/lib/libayagami_gd.release.aarch64.so"
+linux.release.arm64 =    "res://addons/ayagami/lib/libayagami_gd.release.aarch64.so"
+linux.debug.rv64 =       "res://addons/ayagami/lib/libayagami_gd.release.riscv64.so"
+linux.release.rv64 =     "res://addons/ayagami/lib/libayagami_gd.release.riscv64.so"
+macos.debug.x86_64 =     "res://addons/ayagami/lib/libayagami_gd.release.x86_64.dylib"
+macos.release.x86_64 =   "res://addons/ayagami/lib/libayagami_gd.release.x86_64.dylib"
+macos.debug.arm64 =      "res://addons/ayagami/lib/libayagami_gd.release.arm64.dylib"
+macos.release.arm64 =    "res://addons/ayagami/lib/libayagami_gd.release.arm64.dylib"
+windows.debug.x86_64 =   "res://addons/ayagami/lib/libayagami_gd.release.x86_64.dll"
+windows.release.x86_64 = "res://addons/ayagami/lib/libayagami_gd.release.x86_64.dll"

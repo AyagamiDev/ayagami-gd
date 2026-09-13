@@ -11,3 +11,4 @@ export_credentials.cfg
 # Rust-specific
 target
 *.so
+*.dylib
