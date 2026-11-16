@@ -12,3 +12,4 @@ export_credentials.cfg
 target
 *.so
 *.dylib
+*.dll

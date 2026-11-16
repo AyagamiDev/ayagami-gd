@@ -5,6 +5,7 @@ on:
       - "src/*"
       - Cargo.lock
       - Cargo.toml
+      - Makefile
 env:
   project: ayagami-gd
   
@@ -23,12 +24,16 @@ jobs:
           - runner: ubuntu-latest
             platform: linux
             target: x86_64-unknown-linux-gnu
-            output: libgodot_keylogger
-            ext: so
+          - runner: windows-latest
+            platform: windows
+            target: x86_64-pc-windows-msvc
+
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+        uses: actions-rust-lang/setup-rust-toolchain@v2.0.1
+        with:
+            target: ${{ matrix.target }}
       - name: Build extension
         run: make package target=${{ matrix.target }}
       - name: Save artifact

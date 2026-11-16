@@ -4,6 +4,10 @@ on:
     paths:
       - "patches/*"
   workflow_dispatch:
+    inputs:
+        release:
+            type: boolean
+            description: Uploads artifacts to release
 
 env:
   GODOT_VERSION: 4.7.1
@@ -11,7 +15,7 @@ env:
 jobs:
   patch:
     name: Build Godot ${{ matrix.platform }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     strategy:
@@ -19,6 +23,10 @@ jobs:
         include:
           - platform: linuxbsd
             editor_flags: debug_symbols=no use_llvm=yes
+            runner: ubuntu-latest
+          - platform: windows
+            editor_flags: debug_symbols=no use_llvm=yes
+            runner: windows-latest
     steps:
       - name: Checkout godot engine
         uses: actions/checkout@v6
@@ -54,6 +62,7 @@ jobs:
         with:
           name: ${{ matrix.platform }}
       - uses: ncipollo/release-action@v1
+        if: ${{ github.event.inputs.release }}
         with:
           artifacts: bin/*
           allowUpdates: true
