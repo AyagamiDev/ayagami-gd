@@ -5,9 +5,9 @@ on:
       - "patches/*"
   workflow_dispatch:
     inputs:
-        release:
-            type: boolean
-            description: Uploads artifacts to release
+      release:
+        type: boolean
+        description: Uploads artifacts to release
 
 env:
   GODOT_VERSION: 4.7.1
@@ -18,6 +18,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
+    defaults:
+      run:
+        # Use bash shells on all platforms.
+        shell: bash
     strategy:
       matrix:
         include:
@@ -25,7 +29,7 @@ jobs:
             editor_flags: debug_symbols=no use_llvm=yes
             runner: ubuntu-latest
           - platform: windows
-            editor_flags: debug_symbols=no use_llvm=yes
+            editor_flags: debug_symbols=no use_llvm=yes d3d12=yes angle=yes
             runner: windows-latest
     steps:
       - name: Checkout godot engine
@@ -42,10 +46,30 @@ jobs:
         shell: bash
         run: |
           for file in ./ayagami/patches/*; do
-            git apply < $file
+            git apply --ignore-space-change --ignore-whitespace --whitespace=fix -v < $file
           done
       - name: Setup Dependencies
         uses: ./.github/actions/godot-deps
+      - name: Download Direct3D 12 SDK components
+        id: d3d12-sdk
+        if: ${{ matrix.platform }} == "windows"
+        run: |
+          if python ./misc/scripts/install_d3d12_sdk_windows.py; then
+            echo "D3D12_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Windows: Direct3D 12 SDK installation failed, building without Direct3D 12 support."
+            echo "D3D12_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download pre-built ANGLE
+        id: angle-sdk
+        if: ${{ matrix.platform }} == "windows"
+        run: |
+          if python ./misc/scripts/install_angle.py; then
+            echo "ANGLE_ENABLED=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANGLE SDK installation failed, building without ANGLE support."
+            echo "ANGLE_ENABLED=no" >> "$GITHUB_OUTPUT"
+          fi
       - name: Compile editor
         uses: ./.github/actions/godot-build
         with:
